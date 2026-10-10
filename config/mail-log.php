@@ -23,7 +23,7 @@ return [
     // The group stores the FIRST send's body as its preview. Mail without the HasMailLog
     // trait (password reset, email verification, magic links) carries one recipient's
     // secret URL, so the stored html/text body is masked with these patterns before saving.
-    // Fingerprinting is unaffected (see fingerprint.body_strip_patterns).
+    // The raw-path body hash applies the same patterns (even when disabled) so groups stay stable.
     'redact' => [
         'enabled' => filter_var(env('MAIL_LOG_REDACT_BODIES', default: true), FILTER_VALIDATE_BOOL),
 
