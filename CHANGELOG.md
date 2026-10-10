@@ -2,12 +2,16 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
-## Unreleased
+## 0.3.4 — 2026-10-10
 
 ### Fixed
 
 - **Index recipients show in full.** The "+N more" pill moved to its own line under the address, as in the Sends table, and the Recipients column is 32px wider (Mailable is 16px narrower). Addresses up to about 29 characters no longer truncate.
 - **The failure chip under a subject shows up to four lines** instead of one, so the cause at the end of a typical transport error (e.g. "… (Connection refused)") stays visible. The full message is still in the hover tooltip and on the group page.
+
+### Compatibility
+
+- View and CSS only. Drop-in upgrade from 0.3.x.
 
 ## 0.3.3 — 2026-10-10
 
