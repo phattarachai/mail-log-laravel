@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 use Phattarachai\MailLogLaravel\Http\Controllers\AttachmentController;
 use Phattarachai\MailLogLaravel\Http\Controllers\EventController;
 use Phattarachai\MailLogLaravel\Http\Controllers\GroupController;
+use Phattarachai\MailLogLaravel\Http\Controllers\ResendController;
 use Phattarachai\MailLogLaravel\Http\Controllers\TestSendController;
 
 Route::prefix((string) config('mail-log.ui.path', 'mail-log'))
@@ -18,4 +19,5 @@ Route::prefix((string) config('mail-log.ui.path', 'mail-log'))
         Route::delete('/{group}', [GroupController::class, 'destroy'])->name('destroy');
         Route::get('/{group}/attachments/{media}', [AttachmentController::class, 'show'])->name('attachment');
         Route::get('/{group}/events/{event}', [EventController::class, 'show'])->name('event');
+        Route::post('/{group}/events/{event}/resend', [ResendController::class, 'store'])->name('resend');
     });

@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Override;
 use Phattarachai\MailLogLaravel\Console\InstallCommand;
+use Phattarachai\MailLogLaravel\Console\ResendCommand;
 use Phattarachai\MailLogLaravel\Console\SettleStaleCommand;
 use Phattarachai\MailLogLaravel\Listeners\LogOutgoingMail;
 use Phattarachai\MailLogLaravel\Support\Fingerprinter;
@@ -55,7 +56,7 @@ class MailLogServiceProvider extends ServiceProvider
         }
 
         if ($this->app->runningInConsole()) {
-            $this->commands([InstallCommand::class, SettleStaleCommand::class]);
+            $this->commands([InstallCommand::class, ResendCommand::class, SettleStaleCommand::class]);
         }
 
         if (filter_var(config('mail-log.enabled'), FILTER_VALIDATE_BOOL)) {

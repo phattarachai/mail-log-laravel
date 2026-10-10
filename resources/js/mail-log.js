@@ -63,11 +63,18 @@ Alpine.data('copyButton', (value) => ({
 
 Alpine.data('sendsTable', () => ({
     expanded: null,
+    resending: null,
     toggle(id) {
         this.expanded = this.expanded === id ? null : id
     },
     isOpen(id) {
         return this.expanded === id
+    },
+    toggleResend(id) {
+        this.resending = this.resending === id ? null : id
+    },
+    isResending(id) {
+        return this.resending === id
     },
 }))
 

@@ -11,8 +11,10 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection as BaseCollection;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Phattarachai\MailLogLaravel\Models\MailLog;
+use Phattarachai\MailLogLaravel\Models\MailLogAssociation;
 use Phattarachai\MailLogLaravel\Models\MailLogGroup;
 use Throwable;
 
@@ -24,6 +26,7 @@ class GroupController
             'search' => trim((string) $request->query('search', '')),
             'status' => (string) $request->query('status', ''),
             'has_failures' => $request->boolean('has_failures'),
+            'model' => trim((string) $request->query('model', '')),
         ];
 
         $query = MailLogGroup::query()->latest('updated_at');
@@ -55,6 +58,10 @@ class GroupController
             $query->where('failed_count', '>', 0);
         }
 
+        if ($filters['model'] !== '') {
+            $this->whereRelatesTo($query, $filters['model']);
+        }
+
         $groups = $query
             ->with(['latestEvent'])
             ->withCount(MailLogGroup::sendCounts())
@@ -81,12 +88,16 @@ class GroupController
         $this->loadLinkedModels(new EloquentCollection([$group]));
 
         $events = $group->events()
+            ->with('associations')
             ->paginate((int) config('mail-log.ui.page_size', 25))
             ->withQueryString();
+
+        $this->loadLinkedModels($events->getCollection()->flatMap->associations);
 
         return view('mail-log::show', [
             'group' => $group,
             'events' => $events,
+            'relatedModels' => $this->relatedModels($group),
         ]);
     }
 
@@ -96,6 +107,66 @@ class GroupController
 
         return to_route('mail-log.index')
             ->with('mail-log:flash', 'Deleted the group and every send in it.');
+    }
+
+    /**
+     * `?model=Type:id` matches a group whose primary model is that model, or
+     * any of whose sends was associated with it (mailLogModels()).
+     *
+     * @param  Builder<MailLogGroup>  $query
+     */
+    private function whereRelatesTo(Builder $query, string $filter): void
+    {
+        $separator = strrpos($filter, ':');
+
+        if ($separator === false) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $type = substr($filter, 0, $separator);
+        $id = substr($filter, $separator + 1);
+        $groupsTable = (new MailLogGroup)->getTable();
+        $eventsTable = (new MailLog)->getTable();
+        $associationsTable = (new MailLogAssociation)->getTable();
+
+        $query->where(function (Builder $q) use ($type, $id, $groupsTable, $eventsTable, $associationsTable): void {
+            $q->where(fn (Builder $primary) => $primary->where('model_type', $type)->where('model_id', $id))
+                ->orWhereExists(function (QueryBuilder $sub) use ($type, $id, $groupsTable, $eventsTable, $associationsTable): void {
+                    $sub->select($associationsTable.'.id')
+                        ->from($associationsTable)
+                        ->join($eventsTable, $eventsTable.'.id', '=', $associationsTable.'.event_id')
+                        ->whereColumn($eventsTable.'.group_id', $groupsTable.'.id')
+                        ->where($associationsTable.'.model_type', $type)
+                        ->where($associationsTable.'.model_id', $id);
+                });
+        });
+    }
+
+    /**
+     * Every distinct model the group's sends relate to, primary first.
+     *
+     * @return EloquentCollection<int, MailLogAssociation>
+     */
+    private function relatedModels(MailLogGroup $group): EloquentCollection
+    {
+        $firstIds = MailLogAssociation::query()
+            ->whereIn('event_id', MailLog::query()->select('id')->where('group_id', $group->id))
+            ->groupBy('model_type', 'model_id')
+            ->selectRaw('min(id) as first_id')
+            ->limit(100)
+            ->pluck('first_id');
+
+        $associations = MailLogAssociation::query()
+            ->whereKey($firstIds)
+            ->orderByDesc('is_primary')
+            ->orderBy('id')
+            ->get();
+
+        $this->loadLinkedModels($associations);
+
+        return $associations;
     }
 
     /**
@@ -124,14 +195,20 @@ class GroupController
      * Eager-load the host models for MailLogLinkable deep links. A morph type
      * whose class no longer exists must not take the dashboard down.
      *
-     * @param  EloquentCollection<int, MailLogGroup>  $groups
+     * @template TModel of MailLogGroup|MailLogAssociation
+     *
+     * @param  BaseCollection<int, TModel>  $models
      */
-    private function loadLinkedModels(EloquentCollection $groups): void
+    private function loadLinkedModels(BaseCollection $models): void
     {
+        if ($models->isEmpty()) {
+            return;
+        }
+
         try {
-            $groups->load('model');
+            new EloquentCollection($models->all())->load('model');
         } catch (Throwable) {
-            // MailLogGroup::linkable() resolves per row and degrades to text.
+            // linkable() resolves per row and degrades to text.
         }
     }
 }

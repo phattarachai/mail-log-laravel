@@ -92,8 +92,11 @@
                     </div>
                     <div class="grid grid-cols-3 gap-2 px-4 py-2">
                         <dt class="text-xs text-zinc-500">Model</dt>
-                        <dd class="col-span-2 truncate font-mono text-xs text-zinc-800">
-                            <x-mail-log::model-link :group="$group" />
+                        <dd class="col-span-2 flex min-w-0 items-center justify-between gap-2 font-mono text-xs text-zinc-800">
+                            <x-mail-log::model-link :type="$group->model_type" :id="$group->model_id" :linkable="$group->linkable()" class="min-w-0 truncate" />
+                            @if ($group->model_type && $group->model_id)
+                                <a href="{{ route('mail-log.index', ['model' => $group->model_type.':'.$group->model_id]) }}" class="shrink-0 whitespace-nowrap font-sans text-[11px] text-zinc-500 hover:text-zinc-900" title="Every group that relates to this model">All mail →</a>
+                            @endif
                         </dd>
                     </div>
                     <div class="grid grid-cols-3 gap-2 px-4 py-2">
@@ -102,6 +105,8 @@
                     </div>
                 </dl>
             </div>
+
+            <x-mail-log::related-models :associations="$relatedModels" />
 
             <x-mail-log::recipients-list :group="$group" />
 

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Phattarachai\MailLogLaravel\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -26,7 +28,11 @@ use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
  * @property float|null $seconds
  * @property Carbon|null $sent_at
  * @property Carbon|null $created_at
+ * @property string|null $message_id
+ * @property string|null $resend_payload
+ * @property int|null $resent_from_id
  * @property-read MailLogGroup|null $group
+ * @property-read Collection<int, MailLogAssociation> $associations
  */
 class MailLog extends Model
 {
@@ -35,6 +41,13 @@ class MailLog extends Model
     public const UPDATED_AT = null;
 
     protected $guarded = [];
+
+    /**
+     * The encrypted Mailable never leaves the server through toArray()/JSON.
+     *
+     * @var list<string>
+     */
+    protected $hidden = ['resend_payload'];
 
     #[Override]
     public function getTable(): string
@@ -57,6 +70,27 @@ class MailLog extends Model
     public function group(): BelongsTo
     {
         return $this->belongsTo(MailLogGroup::class, 'group_id');
+    }
+
+    /**
+     * @return HasMany<MailLogAssociation, $this>
+     */
+    public function associations(): HasMany
+    {
+        return $this->hasMany(MailLogAssociation::class, 'event_id');
+    }
+
+    /**
+     * @return BelongsTo<MailLog, $this>
+     */
+    public function resentFrom(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'resent_from_id');
+    }
+
+    public function isResendable(): bool
+    {
+        return $this->resend_payload !== null;
     }
 
     /**

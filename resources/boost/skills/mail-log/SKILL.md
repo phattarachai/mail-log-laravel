@@ -1,7 +1,7 @@
 ---
 name: mail-log
 description: Use this skill when the user wants to wire up Mail Log (an outbound-mail logger for Laravel) into a project, or asks about per-Mailable dedup grouping, the `/mail-log` dashboard, or the `HasMailLog` trait. Covers the `phattarachai/mail-log-laravel` package end-to-end via the `mail-log:install` command — publishes config + migrations + Spatie media migration, writes env keys, prints integration snippets (auth gate, morph map, `HasMailLog` trait, scheduled prune). Group/events split — one row per fingerprint (`mail_log_groups`) + one row per send (`mail_logs`). Fingerprint defaults to Mailable class + Eloquent model so the same template to many recipients lands in one group. Triggers on mentions of mail-log, MAIL_LOG_ENABLED, MAIL_LOG_RETENTION_DAYS, HasMailLog, `/mail-log` dashboard, "log outgoing mail", "track sent emails", "group emails by template", "mailable dedup", "test-send modal", "mail log retention", or "set up mail logging".
-version: 2026.10.10.1
+version: 2026.10.10.2
 ---
 
 # Mail Log
@@ -78,6 +78,10 @@ Override hooks the trait exposes (all return null / `false` / `[]` by default):
 - `mailLogFingerprintHints(): array` — extra strings to fold in (e.g. `tenant_id`, A/B variant). Only used when mode includes `'hints'`.
 - `mailLogFingerprintMode(): ?array` — per-Mailable override of the global mode list (`['class', 'model']` default). Valid entries: `class`, `notification_class`, `model`, `hints`, `subject`, `body`, `mailer`.
 - `mailLogSkip(): bool` — opt out of capture entirely (health-check pings, transactional one-offs).
+- `mailLogModels(): iterable` — further models this send relates to (customer, shipment). Stored per send in `mail_log_associations`, filterable on the dashboard (`/mail-log?model=Type:id`), never part of the fingerprint.
+- `mailLogResendable(): bool` — opt in to resend. The Mailable is stored per send (serialized like a queued job, encrypted) and rendered fresh by *↻ Resend* or `php artisan mail-log:resend {id} --to=…`. Leave it false for mail carrying one-time secrets.
+
+The `X-Mail-*` headers the trait stamps are removed before the message is sent; sends are matched by `Message-ID`, stored in `mail_logs.message_id`.
 
 ## Verifying a send arrived
 

@@ -12,6 +12,9 @@ Deep reference for `phattarachai/mail-log-laravel`. Read [`SKILL.md`](SKILL.md) 
 | `redact.patterns` | — | 3 regexes (token/signature/expires/_token/code/hash/otp query values, `/password/reset/` + `/reset-password/` tokens, `/email/verify/` + `/verify-email/` hashes) | `pattern => replacement` map applied with `preg_replace`. Also applied before the body hash, so it keeps raw-path fingerprints stable. A pattern that errors withholds the body instead of storing it. |
 | `tables.groups` | `MAIL_LOG_TABLE_GROUPS` | `mail_log_groups` | Group table name. Migration + models honor this. |
 | `tables.events` | `MAIL_LOG_TABLE_EVENTS` | `mail_logs` | Event (per-send) table name. |
+| `tables.associations` | `MAIL_LOG_TABLE_ASSOCIATIONS` | `mail_log_associations` | Models related to each send (primary + `mailLogModels()`). |
+| `resend.enabled` | `MAIL_LOG_RESEND_ENABLED` | `true` | Show *↻ Resend* for sends of Mailables that opt in, and mount `POST /{group}/events/{event}/resend`. |
+| `resend.max_payload_bytes` | `MAIL_LOG_RESEND_MAX_PAYLOAD_BYTES` | `65536` | Encrypted Mailables larger than this aren't stored (that send can't be resent). |
 | `retention_days` | `MAIL_LOG_RETENTION_DAYS` | `365` | Prunable scope on `MailLogGroup` (keyed on `updated_at`). `null` = never prune. Events cascade-delete via FK. |
 | `attachments.disk` | `MAIL_LOG_ATTACHMENT_DISK` | (null → Spatie default) | Filesystem disk Spatie writes attachment media to. |
 | `attachments.collection` | — | `attachments` | Spatie media collection name. |
@@ -84,6 +87,7 @@ The split mirrors what Watchtower does for exceptions: `mail_log_groups` is the 
 
 ### Listener flow
 
+0. **Headers stay internal.** `handleSending` reads the trait's `X-Mail-*` headers and removes them in a `finally`, before the transport sees the message. It keeps the host's `Message-ID` or assigns one, and stores it on the row; `MessageSent` matches the row by that `Message-ID`.
 1. **`MessageSending`** → fingerprint computed → `MailLogGroup::firstOrCreate(['fingerprint' => $fp], $canonical)` inside `DB::transaction`. On race (UNIQUE violation on second insert) catches `UniqueConstraintViolationException` and re-fetches. New group: persist body + attachments. Existing group: refresh canonical attrs only. Then `MailLog::create([...PENDING])`. Stamps `X-Mail-Log-Event-Id` + `X-Mail-Log-Start` onto the outgoing message.
 2. **`MessageSent`** → reads `X-Mail-Log-Event-Id`, looks up the event, updates to `SENT` + `sent_at` + `seconds`, calls `$group->recordEvent($event)` to bump `sent_count` and flip `latest_status`.
 3. **Failure settlement.** The listener is a scoped singleton that remembers the events this request / job created whose `MessageSent` has not fired ("in flight"):
@@ -115,6 +119,11 @@ class Order extends Model implements MailLogLinkable
 ```
 
 The index's Model column and the group page's Model row render `mailLogTitle()`, linked to `mailLogUrl()` when it returns a URL. Models without the contract render as `Type#id` (class basename on the index). A `model_type` whose class no longer exists degrades to text instead of erroring.
+
+## Several models and resend
+
+- **`mail_log_associations`** — one row per model per send: the primary model (`is_primary`) plus `mailLogModels()`. `GroupController` filters `?model=Type:id` against the group's primary model or any association of its sends; the group page lists the distinct related models.
+- **Resend** — `mailLogResendable()` makes the trait put `Crypt::encryptString(serialize($mailable))` in `X-Mail-Log-Resend`; the listener stores it in `mail_logs.resend_payload` (hidden from `toArray()`). `MailResender` restores it, clears its to/cc/bcc, tells the listener which addresses the resend may reach, and `sendNow()`s it. The listener cancels (returns false from `MessageSending`) a resend that would reach any other address, e.g. one the Mailable adds in `envelope()`. The new send gets `resent_from_id`. Failures surface as `CannotResend` (dashboard flash, command error).
 
 ## UI routes + auth gate
 

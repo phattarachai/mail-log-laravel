@@ -2,6 +2,24 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## 0.4.0 — 2026-10-10
+
+### Added
+
+- **Several models per send.** A new `mailLogModels()` hook on `HasMailLog` returns further models a send relates to (a customer, a shipment), next to the primary `mailLogModel()`. They are stored per send in a new `mail_log_associations` table and never change the fingerprint. The group page lists every related model (linked through `MailLogLinkable`), each send shows its own, and the index filters by any of them with `?model=Type:id` (**All mail →** links).
+- **Resend.** A Mailable that returns true from the new `mailLogResendable()` hook has itself stored per send: serialized like a queued job (models as identifiers) and encrypted with the `APP_KEY`. *↻ Resend* on a send in the dashboard, or `php artisan mail-log:resend {id} [--to=…]`, renders it again with current data and fresh links and sends it to the original recipients or other addresses. The resend is a new send in the same group, marked *resent* with `resent_from_id`. A resend that would reach an address you didn't choose (e.g. one the Mailable sets in `envelope()`) is cancelled before sending. Behind the dashboard's auth gate; off with `MAIL_LOG_RESEND_ENABLED=false`.
+- **Message-ID per send.** `mail_logs.message_id` stores the Message-ID that was sent: the Mailable's own, or one Mail Log assigns. Sends are now matched to their row by it, and it is what a future bounce reader will match DSNs against.
+
+### Fixed
+
+- **Internal headers no longer reach recipients.** The `X-Mail-*` headers `HasMailLog` stamps (Mailable class, model class and id, fingerprint hints, the internal event id and timing) were sent out with every mail. The listener now removes them before the message reaches the transport, and the trait stamps nothing while Mail Log is disabled.
+
+### Upgrading
+
+- Run `php artisan migrate`: two new migrations add `message_id`, `resend_payload` and `resent_from_id` to `mail_logs` and create `mail_log_associations`. They load from the package, so nothing needs publishing.
+- New config keys (defaults apply when missing): `tables.associations`, `resend.enabled`, `resend.max_payload_bytes`.
+- Sends logged before 0.4.0 have no Message-ID, associations or resend payload.
+
 ## 0.3.4 — 2026-10-10
 
 ### Fixed

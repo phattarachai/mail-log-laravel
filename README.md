@@ -17,6 +17,9 @@ Self-hosted outbound mail logger for Laravel. Captures every `Mail::send(...)` +
 - **Per-mailable opt-in via a single trait** — drop `HasMailLog` into a Mailable, return the originating model from `mailLogModel()`, return `$this->withMailLog(new Headers())` from `headers()`. That's the whole integration surface.
 - **Every send settles.** A send whose transport throws becomes FAILED with the exception message, whether it was a queued Mailable, a queued Notification, or a synchronous `Mail::send()`. A scheduled `mail-log:settle-stale` catches the rest (see [Failed and stale sends](#failed-and-stale-sends)).
 - **Secrets stay out of the preview.** Reset tokens, signed-URL signatures and verify hashes in the stored body are masked as `[redacted]`.
+- **Several models per send.** Besides the primary model that groups the mail, a send can relate to any number of models (a customer, a shipment). Filter the dashboard by any of them.
+- **Resend from the dashboard.** Mailables that opt in can be rendered again with current data and sent to the original recipients or another address.
+- **Nothing internal reaches the recipient.** The trait's `X-Mail-*` headers are removed before the message is sent; each send is matched by its `Message-ID`, which is stored for later bounce matching.
 - **First-class retention.** `MailLogGroup` implements `Prunable`; `php artisan model:prune` (daily via scheduler) cascades old groups + their events.
 
 ## Install
@@ -82,6 +85,8 @@ All return safe defaults — override only what you need.
 | `mailLogFingerprintHints(): array` | `[]` | Extra strings (tenant id, A/B variant) folded in when mode includes `'hints'`. |
 | `mailLogFingerprintMode(): ?array` | `null` | Per-Mailable override of `['class', 'model']`. Valid: `class`, `notification_class`, `model`, `hints`, `subject`, `body`, `mailer`. |
 | `mailLogSkip(): bool` | `false` | Opt this Mailable out of capture entirely (health-check pings, transactional one-offs). |
+| `mailLogModels(): iterable` | `[]` | Further models this send relates to. Stored per send, searchable, never part of the fingerprint. See [Several models per send](#several-models-per-send). |
+| `mailLogResendable(): bool` | `false` | Store this Mailable per send so it can be resent. See [Resending](#resending). |
 
 ## Group / event model
 
@@ -101,7 +106,15 @@ mail_logs (one row per Mail::send(), append-only)
 ├── to / cc / bcc  (JSON)
 ├── status  (Pending → Sent | Failed)
 ├── error_message / seconds / sent_at
+├── message_id  (the Message-ID that was sent, indexed)
+├── resend_payload  (encrypted Mailable, only for mailLogResendable())
+├── resent_from_id  (FK → mail_logs.id when this send is a resend)
 └── created_at
+
+mail_log_associations (one row per model per send)
+├── event_id  (FK → mail_logs.id, cascadeOnDelete)
+├── model_type / model_id  (indexed)
+└── is_primary  (true for mailLogModel())
 ```
 
 The body shown on the show page is the **first send** in the group — per-recipient body variation (signed URLs, magic-login tokens, personalized greetings) is NOT captured per row. The package favors fingerprint stability over body fidelity, and per-event body storage is not planned.
@@ -143,6 +156,64 @@ class Order extends Model implements MailLogLinkable
 
 Models without the contract render as `Order#42`.
 
+### Several models per send
+
+`mailLogModel()` is the primary model: it decides the group. Return further models from `mailLogModels()` and each send records them too:
+
+```php
+protected function mailLogModel(): ?Model
+{
+    return $this->order;
+}
+
+protected function mailLogModels(): iterable
+{
+    return [$this->order->customer, $this->shipment];
+}
+```
+
+- They are stored **per send** (`mail_log_associations`), so a group whose sends relate to different customers keeps them apart.
+- They **never change the fingerprint**: the mail above still groups by Mailable + order.
+- The group page lists every related model (linked through `MailLogLinkable`), and each send shows its own under the recipient.
+- **All mail →** next to a model opens the index filtered to `?model=Type:id`: every group whose primary model is that model, or that has a send related to it.
+
+## Resending
+
+A Mailable opts in with `mailLogResendable()`:
+
+```php
+class OrderShippedMail extends Mailable
+{
+    use HasMailLog, SerializesModels;
+
+    protected function mailLogResendable(): bool
+    {
+        return true;
+    }
+}
+```
+
+Each send of it then stores the Mailable itself: serialized the way a queued job is (models as identifiers, via `SerializesModels`) and encrypted with your `APP_KEY`. Resending restores it and renders it **again**, with the models' current data and fresh links, so it never replays the stored preview (which is the first send's, and redacted).
+
+- **Dashboard:** *↻ Resend* on a send in the Sends table. Keep the original recipients or enter up to 10 other addresses.
+- **CLI:** `php artisan mail-log:resend {send id} [--to=a@example.com --to=…]`. Without `--to` it goes to the original to, cc and bcc.
+
+The resend is logged as a new send in the same group, marked *↻ resent*, with `resent_from_id` pointing at the original. It goes out immediately, even for a `ShouldQueue` Mailable.
+
+Things to know:
+
+- **Opt in only where resending is safe.** Leave it off for mail that carries one-time secrets (login links, reset tokens) as constructor values; mail without the trait (Laravel's `ResetPassword`, `VerifyEmail`) can't be resent at all.
+- **A Mailable that sets its own recipients** (in `envelope()` or `build()`) can only be resent to them. A resend that would reach any address you didn't choose is cancelled before it is sent, with an error.
+- It can't be restored after the `APP_KEY` changes, the class is renamed or removed, or a model it holds is deleted; the dashboard says which.
+- A Mailable holding a closure can't be serialized, and one larger than `mail-log.resend.max_payload_bytes` (64 KB) isn't stored; those sends show no Resend button.
+- The route sits behind the same `MailLog::auth()` gate as the dashboard. Turn the feature off with `MAIL_LOG_RESEND_ENABLED=false`.
+
+## Outgoing headers and Message-ID
+
+`HasMailLog` passes its metadata to the listener in `X-Mail-*` headers (class, model keys, fingerprint hints, the encrypted resend payload). The listener reads them and **removes them before the message is handed to the transport**, so recipients never see class names or record ids.
+
+Each send is matched to its row by `Message-ID`: your own if the Mailable sets one (`new Headers(messageId: …)`), otherwise one the listener assigns. It's stored in `mail_logs.message_id`, which is what bounce notifications (DSNs) refer to.
+
 ## Failed and stale sends
 
 Every event starts **Pending** when Laravel fires `MessageSending` and becomes **Sent** on `MessageSent`. When the transport throws, the listener settles it as **Failed** with the exception message:
@@ -168,6 +239,7 @@ MAIL_LOG_TEST_SEND_ENABLED=true          # show the Test-send button + POST /tes
 MAIL_LOG_MAX_RECIPIENTS_PER_EVENT=200    # cap recipients stored in a single event row's JSON columns
 MAIL_LOG_PENDING_TIMEOUT_MINUTES=15      # mail-log:settle-stale fails sends still Pending after this
 MAIL_LOG_REDACT_BODIES=true              # mask tokens / signatures / verify hashes in stored bodies
+MAIL_LOG_RESEND_ENABLED=true             # resend button + POST /{group}/events/{event}/resend
 ```
 
 See [`config/mail-log.php`](config/mail-log.php) for the full schema; the [Boost skill `reference.md`](resources/boost/skills/mail-log/reference.md) walks every key.

@@ -16,12 +16,14 @@ use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Support\Facades\DB;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Phattarachai\MailLogLaravel\Models\MailLog;
+use Phattarachai\MailLogLaravel\Models\MailLogAssociation;
 use Phattarachai\MailLogLaravel\Models\MailLogGroup;
 use Phattarachai\MailLogLaravel\Support\BodyRedactor;
 use Phattarachai\MailLogLaravel\Support\Fingerprinter;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Header\HeaderInterface;
+use Symfony\Component\Mime\Header\IdentificationHeader;
 use Throwable;
 
 /**
@@ -34,11 +36,32 @@ class LogOutgoingMail
     public const string UNCONFIRMED_MESSAGE = 'No MessageSent was fired for this send: the transport threw, or another MessageSending listener cancelled it. Check the application log for the exception.';
 
     /**
-     * Event ids created by this process that are still waiting for MessageSent.
+     * The X-Mail-* headers HasMailLog stamps. They carry class names, model
+     * keys and the encrypted resend payload, so they are read and then
+     * removed before the message reaches the transport.
      *
-     * @var array<int, int>
+     * @var list<string>
+     */
+    public const array LOG_HEADERS = [
+        'X-Mail-Class', 'X-Mail-Notification-Class', 'X-Mail-Model-Type', 'X-Mail-Model-Id',
+        'X-Mail-Models', 'X-Mail-Fingerprint', 'X-Mail-Fingerprint-Mode', 'X-Mail-Fingerprint-Hint',
+        'X-Mail-Log-Skip', 'X-Mail-Log-Resend', 'X-Mail-Log-Event-Id', 'X-Mail-Log-Start',
+    ];
+
+    /**
+     * Event ids created by this process that are still waiting for
+     * MessageSent, with the microtime the send started.
+     *
+     * @var array<int, float>
      */
     private array $inFlight = [];
+
+    /**
+     * Message-ID => event id for the sends in $inFlight.
+     *
+     * @var array<string, int>
+     */
+    private array $inFlightByMessageId = [];
 
     /**
      * Uuids of jobs whose failure this process already settled from $inFlight.
@@ -47,6 +70,14 @@ class LogOutgoingMail
      */
     private array $settledJobs = [];
 
+    /**
+     * Set by ResendMail around its sendNow(): the event being resent and the
+     * only addresses the resend may reach.
+     *
+     * @var array{from: int, recipients: list<string>}|null
+     */
+    private ?array $pendingResend = null;
+
     public function __construct(
         private readonly Fingerprinter $fingerprinter,
         private readonly BodyRedactor $redactor,
@@ -54,68 +85,41 @@ class LogOutgoingMail
 
     public function handleSending(MessageSending $event): ?bool
     {
-        if (! filter_var(config('mail-log.enabled', default: true), FILTER_VALIDATE_BOOL)) {
-            return null;
-        }
-
         $message = $event->message;
 
-        if ($this->headerValue($message, 'X-Mail-Log-Skip') === '1') {
-            return null;
-        }
-
-        $mailer = $event->data['mailer'] ?? null;
-
         try {
-            $fingerprint = ($this->fingerprinter)($message, $mailer);
-
-            $eventRow = DB::transaction(function () use ($message, $fingerprint, $mailer): MailLog {
-                $group = $this->resolveGroup($fingerprint, $message, $mailer);
-
-                return MailLog::query()->create([
-                    'group_id' => $group->id,
-                    'to' => $this->extractAddresses($message->getTo()),
-                    'cc' => $this->extractAddresses($message->getCc()) ?: null,
-                    'bcc' => $this->extractAddresses($message->getBcc()) ?: null,
-                    'status' => MailLogStatus::Pending,
-                ]);
-            });
-
-            $this->inFlight[$eventRow->id] = $eventRow->id;
-
-            $headers = $message->getHeaders();
-            $headers->addTextHeader('X-Mail-Log-Event-Id', (string) $eventRow->id);
-            $headers->addTextHeader('X-Mail-Log-Start', (string) microtime(as_float: true));
-        } catch (Throwable $e) {
-            report($e);
+            return $this->logSending($message, $event->data['mailer'] ?? null);
+        } finally {
+            foreach (self::LOG_HEADERS as $name) {
+                $message->getHeaders()->remove($name);
+            }
         }
-
-        return null;
     }
 
     public function handleSent(MessageSent $event): void
     {
         try {
             $message = $event->message;
-            $eventId = $this->headerValue($message, 'X-Mail-Log-Event-Id');
+            $messageId = $this->messageIdOf($message);
 
-            if ($eventId === null) {
+            if ($messageId === null) {
                 return;
             }
 
-            unset($this->inFlight[(int) $eventId]);
+            $row = $this->sentRow($messageId);
 
-            $row = MailLog::query()->find($eventId);
-
-            if ($row === null) {
+            if (! $row instanceof MailLog) {
                 return;
             }
 
-            DB::transaction(function () use ($row, $message): void {
+            $startedAt = $this->inFlight[$row->id] ?? null;
+            unset($this->inFlight[$row->id], $this->inFlightByMessageId[$messageId]);
+
+            DB::transaction(function () use ($row, $startedAt): void {
                 $row->update([
                     'status' => MailLogStatus::Sent,
                     'sent_at' => now(),
-                    'seconds' => $this->calculatedSeconds($message),
+                    'seconds' => $startedAt === null ? null : round(microtime(as_float: true) - $startedAt, 3),
                 ]);
 
                 $row->group?->recordEvent($row);
@@ -123,6 +127,25 @@ class LogOutgoingMail
         } catch (Throwable $e) {
             report($e);
         }
+    }
+
+    /**
+     * Called by ResendMail: the next send must only reach $recipients and is
+     * recorded as a resend of $fromEventId.
+     *
+     * @param  list<string>  $recipients
+     */
+    public function expectResend(int $fromEventId, array $recipients): void
+    {
+        $this->pendingResend = [
+            'from' => $fromEventId,
+            'recipients' => array_map(mb_strtolower(...), $recipients),
+        ];
+    }
+
+    public function forgetResend(): void
+    {
+        $this->pendingResend = null;
     }
 
     /**
@@ -197,6 +220,172 @@ class LogOutgoingMail
         $this->settleInFlight(self::UNCONFIRMED_MESSAGE);
     }
 
+    private function logSending(Email $message, ?string $mailer): ?bool
+    {
+        if (! filter_var(config('mail-log.enabled', default: true), FILTER_VALIDATE_BOOL)) {
+            return null;
+        }
+
+        if ($this->headerValue($message, 'X-Mail-Log-Skip') === '1') {
+            return null;
+        }
+
+        $resend = $this->pendingResend;
+
+        if ($resend !== null && ! $this->onlyAddresses($message, $resend['recipients'])) {
+            return false;
+        }
+
+        try {
+            $fingerprint = ($this->fingerprinter)($message, $mailer);
+            $messageId = $this->ensureMessageId($message);
+
+            $eventRow = DB::transaction(function () use ($message, $fingerprint, $mailer, $messageId, $resend): MailLog {
+                $group = $this->resolveGroup($fingerprint, $message, $mailer);
+
+                $row = MailLog::query()->create([
+                    'group_id' => $group->id,
+                    'to' => $this->extractAddresses($message->getTo()),
+                    'cc' => $this->extractAddresses($message->getCc()) ?: null,
+                    'bcc' => $this->extractAddresses($message->getBcc()) ?: null,
+                    'status' => MailLogStatus::Pending,
+                    'message_id' => $messageId,
+                    'resend_payload' => $this->headerValue($message, 'X-Mail-Log-Resend'),
+                    'resent_from_id' => $resend['from'] ?? null,
+                ]);
+
+                $this->storeAssociations($row, $message);
+
+                return $row;
+            });
+
+            $this->inFlight[$eventRow->id] = microtime(as_float: true);
+            $this->inFlightByMessageId[$messageId] = $eventRow->id;
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        return null;
+    }
+
+    /**
+     * The host's own Message-ID when it set one, else one assigned now so the
+     * send can be matched on MessageSent (and later against bounces).
+     */
+    private function ensureMessageId(Email $message): string
+    {
+        $existing = $this->messageIdOf($message);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        try {
+            $id = $message->generateMessageId();
+        } catch (Throwable) {
+            $id = bin2hex(random_bytes(16)).'@mail-log.local';
+        }
+
+        $message->getHeaders()->addIdHeader('Message-ID', $id);
+
+        return $id;
+    }
+
+    private function messageIdOf(Email $message): ?string
+    {
+        $header = $message->getHeaders()->get('Message-ID');
+
+        return $header instanceof IdentificationHeader ? $header->getId() : null;
+    }
+
+    private function sentRow(string $messageId): ?MailLog
+    {
+        $id = $this->inFlightByMessageId[$messageId] ?? null;
+
+        if ($id !== null) {
+            return MailLog::query()->find($id);
+        }
+
+        return MailLog::query()
+            ->where('message_id', $messageId)
+            ->where('status', MailLogStatus::Pending)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * @param  list<string>  $allowed  lower-cased addresses
+     */
+    private function onlyAddresses(Email $message, array $allowed): bool
+    {
+        $addresses = [...$message->getTo(), ...$message->getCc(), ...$message->getBcc()];
+
+        foreach ($addresses as $address) {
+            if (! in_array(mb_strtolower($address->getAddress()), $allowed, strict: true)) {
+                return false;
+            }
+        }
+
+        return $addresses !== [];
+    }
+
+    /**
+     * The primary model (mailLogModel()) plus mailLogModels(), one row each.
+     */
+    private function storeAssociations(MailLog $row, Email $message): void
+    {
+        $pairs = [];
+        $primaryType = $this->headerValue($message, 'X-Mail-Model-Type');
+        $primaryId = $this->headerValue($message, 'X-Mail-Model-Id');
+
+        if ($primaryType !== null && $primaryId !== null) {
+            $pairs[$primaryType."\0".$primaryId] = [$primaryType, $primaryId, true];
+        }
+
+        foreach ($this->extraModels($message) as [$type, $id]) {
+            $pairs[$type."\0".$id] ??= [$type, $id, false];
+        }
+
+        if ($pairs === []) {
+            return;
+        }
+
+        MailLogAssociation::query()->insert(array_map(fn (array $pair): array => [
+            'event_id' => $row->id,
+            'model_type' => $pair[0],
+            'model_id' => $pair[1],
+            'is_primary' => $pair[2],
+        ], array_values($pairs)));
+    }
+
+    /**
+     * @return list<array{0: string, 1: string}>
+     */
+    private function extraModels(Email $message): array
+    {
+        $raw = $this->headerValue($message, 'X-Mail-Models');
+
+        if ($raw === null) {
+            return [];
+        }
+
+        $decoded = json_decode($raw, associative: true);
+
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        $pairs = [];
+
+        foreach ($decoded as $pair) {
+            if (is_array($pair) && is_string($pair[0] ?? null) && is_scalar($pair[1] ?? null)) {
+                $pairs[] = [$pair[0], (string) $pair[1]];
+            }
+        }
+
+        return $pairs;
+    }
+
     /**
      * @return bool whether anything was in flight
      */
@@ -206,8 +395,9 @@ class LogOutgoingMail
             return false;
         }
 
-        $ids = array_values($this->inFlight);
+        $ids = array_keys($this->inFlight);
         $this->inFlight = [];
+        $this->inFlightByMessageId = [];
 
         try {
             MailLog::query()
@@ -397,16 +587,5 @@ class LogOutgoingMail
         }
 
         return $body;
-    }
-
-    private function calculatedSeconds(Email $message): ?float
-    {
-        $start = $this->headerValue($message, 'X-Mail-Log-Start');
-
-        if ($start === null) {
-            return null;
-        }
-
-        return round(microtime(as_float: true) - (float) $start, 3);
     }
 }

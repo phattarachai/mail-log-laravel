@@ -39,6 +39,14 @@
 
                 <button type="submit" class="hidden">Apply</button>
 
+                @if (($filters['model'] ?? '') !== '')
+                    <input type="hidden" name="model" value="{{ $filters['model'] }}">
+                    <a href="{{ route('mail-log.index', array_filter(array_merge($filters, ['model' => null]))) }}" class="ml-2 inline-flex items-center gap-1 rounded-full bg-zinc-900 px-2.5 py-1 font-mono text-[11px] text-white hover:bg-zinc-700" title="Groups whose primary model is this model, or that have a send associated with it. Click to remove.">
+                        model: {{ class_basename(\Illuminate\Support\Str::beforeLast($filters['model'], ':')) }}#{{ \Illuminate\Support\Str::afterLast($filters['model'], ':') }}
+                        <span aria-hidden="true">×</span>
+                    </a>
+                @endif
+
                 @if (!empty(array_filter($filters)))
                     <a href="{{ route('mail-log.index') }}" class="ml-1 text-xs text-zinc-500 underline-offset-2 hover:underline">Clear</a>
                 @endif

@@ -65,7 +65,7 @@
         @endif
     </td>
     <td class="whitespace-nowrap px-3 py-2.5 align-top text-zinc-600">
-        <x-mail-log::model-link :group="$group" short class="block truncate" />
+        <x-mail-log::model-link :type="$group->model_type" :id="$group->model_id" :linkable="$group->linkable()" short class="block truncate" />
     </td>
     <td class="px-3 py-2.5 align-top">
         @if ($group->mailer)

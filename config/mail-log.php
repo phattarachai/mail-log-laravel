@@ -10,6 +10,7 @@ return [
     'tables' => [
         'groups' => env('MAIL_LOG_TABLE_GROUPS', 'mail_log_groups'),
         'events' => env('MAIL_LOG_TABLE_EVENTS', 'mail_logs'),
+        'associations' => env('MAIL_LOG_TABLE_ASSOCIATIONS', 'mail_log_associations'),
     ],
 
     // Prunable retention applied to GROUPS keyed on updated_at — events cascade-delete via FK.
@@ -82,6 +83,16 @@ return [
     ],
 
     'morph_alias' => env('MAIL_LOG_MORPH_ALIAS', 'mail_log_group'),
+
+    // Resend a logged send from the dashboard or `mail-log:resend`. Only sends of Mailables
+    // that opt in with mailLogResendable() can be resent: the Mailable is stored (encrypted,
+    // models as identifiers) and rendered fresh, so links and content are current.
+    'resend' => [
+        'enabled' => filter_var(env('MAIL_LOG_RESEND_ENABLED', default: true), FILTER_VALIDATE_BOOL),
+
+        // Stored Mailables larger than this are skipped (that send can't be resent).
+        'max_payload_bytes' => (int) env('MAIL_LOG_RESEND_MAX_PAYLOAD_BYTES', 64 * 1024),
+    ],
 
     'test_send' => [
         'enabled' => filter_var(env('MAIL_LOG_TEST_SEND_ENABLED', default: true), FILTER_VALIDATE_BOOL),

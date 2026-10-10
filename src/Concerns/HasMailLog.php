@@ -6,6 +6,8 @@ namespace Phattarachai\MailLogLaravel\Concerns;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Headers;
+use Illuminate\Support\Facades\Crypt;
+use Throwable;
 
 /**
  * Mix into a Mailable (or a custom Notification-channel Mailable) so the
@@ -42,6 +44,10 @@ trait HasMailLog
      */
     public function withMailLog(Headers $headers): Headers
     {
+        if (! filter_var(config('mail-log.enabled', default: true), FILTER_VALIDATE_BOOL)) {
+            return $headers;
+        }
+
         $text = [
             'X-Mail-Class' => static::class,
         ];
@@ -57,6 +63,18 @@ trait HasMailLog
         if ($model instanceof Model && $model->exists) {
             $text['X-Mail-Model-Type'] = $model->getMorphClass();
             $text['X-Mail-Model-Id'] = (string) $model->getKey();
+        }
+
+        $models = $this->mailLogModelHeader();
+
+        if ($models !== null) {
+            $text['X-Mail-Models'] = $models;
+        }
+
+        $resendPayload = $this->mailLogResendPayload();
+
+        if ($resendPayload !== null) {
+            $text['X-Mail-Log-Resend'] = $resendPayload;
         }
 
         $hints = $this->mailLogFingerprintHints();
@@ -93,6 +111,29 @@ trait HasMailLog
     protected function mailLogModel(): ?Model
     {
         return null;
+    }
+
+    /**
+     * Further models this send relates to (a customer, a shipment). They are
+     * stored per send next to mailLogModel() so the dashboard can find and
+     * link the mail from any of them, but they never change the grouping.
+     *
+     * @return iterable<int, Model|null>
+     */
+    protected function mailLogModels(): iterable
+    {
+        return [];
+    }
+
+    /**
+     * Opt in to resending from the dashboard or `mail-log:resend`. The
+     * Mailable is stored per send (serialized like a queued job, models as
+     * identifiers, encrypted) and rendered fresh on resend. Leave false for
+     * mail carrying one-time secrets such as login or reset tokens.
+     */
+    protected function mailLogResendable(): bool
+    {
+        return false;
     }
 
     /**
@@ -138,5 +179,47 @@ trait HasMailLog
     protected function mailLogSkip(): bool
     {
         return false;
+    }
+
+    /**
+     * JSON list of [morph type, key] pairs for mailLogModels(), or null.
+     */
+    private function mailLogModelHeader(): ?string
+    {
+        $pairs = [];
+
+        foreach ($this->mailLogModels() as $model) {
+            if ($model instanceof Model && $model->exists) {
+                $pairs[] = [$model->getMorphClass(), (string) $model->getKey()];
+            }
+        }
+
+        if ($pairs === []) {
+            return null;
+        }
+
+        return json_encode(array_values(array_unique($pairs, SORT_REGULAR)), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * The encrypted, serialized Mailable for resend, or null when this
+     * Mailable doesn't opt in, can't be serialized (e.g. it holds a closure),
+     * or exceeds mail-log.resend.max_payload_bytes.
+     */
+    private function mailLogResendPayload(): ?string
+    {
+        if (! $this->mailLogResendable()) {
+            return null;
+        }
+
+        try {
+            $payload = Crypt::encryptString(serialize($this));
+        } catch (Throwable) {
+            return null;
+        }
+
+        $maxBytes = (int) config('mail-log.resend.max_payload_bytes', 64 * 1024);
+
+        return strlen($payload) <= $maxBytes ? $payload : null;
     }
 }

@@ -10,6 +10,18 @@
 </head>
 <body class="min-h-screen bg-white text-zinc-900 antialiased">
 
+@if (session('mail-log:error'))
+    <div class="border-b border-rose-200 bg-rose-50 px-6 py-2 text-xs text-rose-700">
+        {{ session('mail-log:error') }}
+    </div>
+@endif
+
+@if (isset($errors) && $errors->any())
+    <div class="border-b border-rose-200 bg-rose-50 px-6 py-2 text-xs text-rose-700">
+        {{ $errors->first() }}
+    </div>
+@endif
+
 @if (session('mail-log:flash'))
     <div class="border-b border-emerald-200 bg-emerald-50 px-6 py-2 text-xs text-emerald-700">
         {{ session('mail-log:flash') }}
