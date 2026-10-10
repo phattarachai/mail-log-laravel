@@ -47,12 +47,10 @@
     </td>
     <td class="px-3 py-2.5 align-top text-zinc-600">
         @if ($firstRecipient)
-            <div class="flex min-w-0 items-center gap-1">
-                <span class="truncate" title="{{ $firstRecipient }}">{{ $firstRecipient }}</span>
-                @if ($extra > 0)
-                    <span class="inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-full bg-zinc-100 px-1.5 font-mono text-[11px] text-zinc-600">+{{ $extra }} more</span>
-                @endif
-            </div>
+            <div class="truncate" title="{{ $firstRecipient }}">{{ $firstRecipient }}</div>
+            @if ($extra > 0)
+                <span class="mt-0.5 inline-flex h-5 items-center whitespace-nowrap rounded-full bg-zinc-100 px-1.5 font-mono text-[11px] text-zinc-600">+{{ $extra }} more</span>
+            @endif
         @else
             <span class="text-zinc-400">—</span>
         @endif
