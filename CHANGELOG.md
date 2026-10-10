@@ -2,6 +2,16 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## 0.3.3 — 2026-10-10
+
+### Fixed
+
+- **The index table fits its page again.** 0.3.2 only moved the overflow inside the table's box, so the "× sends" column was cut off at every window size. Long failure messages, recipients and class names made the table about 1,350–1,480px wide in a 1,232px box. The table now uses a fixed layout: Last sent, Status, Recipients, Mailable, Model, Mailer and × sends have set widths, Subject takes the rest, and every cell truncates long content with the full text on hover. Checked in headless Chrome: the table is exactly as wide as its box at 1280, 1360 and 1440px. Below about 1,090px it scrolls inside its box.
+
+### Compatibility
+
+- View and CSS only. Drop-in upgrade from 0.3.x.
+
 ## 0.3.2 — 2026-10-10
 
 ### Fixed

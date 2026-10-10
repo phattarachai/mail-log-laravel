@@ -55,17 +55,20 @@
         <x-mail-log::empty-state :filtered="!empty(array_filter($filters))" />
     @else
         <div class="mx-auto max-w-7xl overflow-x-auto px-6">
-            <table class="w-full text-sm">
+            {{-- Fixed layout: these widths total 912px, so Subject takes the rest of the
+                 1232px content box. Cells truncate rather than widen the table. Below
+                 ~68rem the table scrolls inside this box. --}}
+            <table class="w-full min-w-[68rem] table-fixed text-sm">
                 <thead>
                     <tr class="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500">
-                        <th class="whitespace-nowrap py-2.5 font-medium">Last sent</th>
-                        <th class="px-3 py-2.5 font-medium">Status</th>
+                        <th class="w-36 whitespace-nowrap py-2.5 font-medium">Last sent</th>
+                        <th class="w-24 px-3 py-2.5 font-medium">Status</th>
                         <th class="px-3 py-2.5 font-medium">Subject</th>
-                        <th class="px-3 py-2.5 font-medium">Recipients</th>
-                        <th class="px-3 py-2.5 font-medium">Mailable</th>
-                        <th class="px-3 py-2.5 font-medium">Model</th>
-                        <th class="px-3 py-2.5 font-medium">Mailer</th>
-                        <th class="whitespace-nowrap px-3 py-2.5 text-right font-medium" title="Send count, pending included">× <span class="font-normal lowercase">sends</span></th>
+                        <th class="w-52 px-3 py-2.5 font-medium">Recipients</th>
+                        <th class="w-40 px-3 py-2.5 font-medium">Mailable</th>
+                        <th class="w-36 px-3 py-2.5 font-medium">Model</th>
+                        <th class="w-20 px-3 py-2.5 font-medium">Mailer</th>
+                        <th class="w-20 whitespace-nowrap px-3 py-2.5 text-right font-medium" title="Send count, pending included">× <span class="font-normal lowercase">sends</span></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-zinc-100">

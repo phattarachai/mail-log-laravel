@@ -47,29 +47,31 @@
     </td>
     <td class="px-3 py-2.5 align-top text-zinc-600">
         @if ($firstRecipient)
-            <span>{{ $firstRecipient }}</span>
-            @if ($extra > 0)
-                <span class="ml-1 inline-flex h-5 items-center rounded-full bg-zinc-100 px-1.5 font-mono text-[11px] text-zinc-600">+{{ $extra }} more</span>
-            @endif
+            <div class="flex min-w-0 items-center gap-1">
+                <span class="truncate" title="{{ $firstRecipient }}">{{ $firstRecipient }}</span>
+                @if ($extra > 0)
+                    <span class="inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-full bg-zinc-100 px-1.5 font-mono text-[11px] text-zinc-600">+{{ $extra }} more</span>
+                @endif
+            </div>
         @else
             <span class="text-zinc-400">—</span>
         @endif
     </td>
     <td class="px-3 py-2.5 align-top">
         @if ($group->mailable_class)
-            <span class="font-mono text-[11px] text-zinc-500">{{ class_basename($group->mailable_class) }}</span>
+            <span class="block truncate font-mono text-[11px] text-zinc-500" title="{{ $group->mailable_class }}">{{ class_basename($group->mailable_class) }}</span>
         @elseif ($group->notification_class)
-            <span class="font-mono text-[11px] text-zinc-500">{{ class_basename($group->notification_class) }}</span>
+            <span class="block truncate font-mono text-[11px] text-zinc-500" title="{{ $group->notification_class }}">{{ class_basename($group->notification_class) }}</span>
         @else
             <span class="text-zinc-400">—</span>
         @endif
     </td>
-    <td class="max-w-36 whitespace-nowrap px-3 py-2.5 align-top text-zinc-600">
+    <td class="whitespace-nowrap px-3 py-2.5 align-top text-zinc-600">
         <x-mail-log::model-link :group="$group" short class="block truncate" />
     </td>
     <td class="px-3 py-2.5 align-top">
         @if ($group->mailer)
-            <span class="inline-flex items-center rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-600">{{ $group->mailer }}</span>
+            <span class="inline-block max-w-full truncate rounded-md bg-zinc-100 px-1.5 py-0.5 align-top font-mono text-[11px] text-zinc-600" title="{{ $group->mailer }}">{{ $group->mailer }}</span>
         @else
             <span class="text-zinc-400">—</span>
         @endif
