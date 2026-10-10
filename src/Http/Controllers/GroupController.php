@@ -7,11 +7,15 @@ namespace Phattarachai\MailLogLaravel\Http\Controllers;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection as BaseCollection;
+use Illuminate\Support\Str;
+use Phattarachai\MailLogLaravel\Contracts\MailLogLinkable;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Phattarachai\MailLogLaravel\Models\MailLog;
 use Phattarachai\MailLogLaravel\Models\MailLogAssociation;
@@ -78,6 +82,7 @@ class GroupController
         return view('mail-log::index', [
             'groups' => $groups,
             'filters' => $filters,
+            'modelFilterLabel' => $filters['model'] === '' ? null : $this->modelFilterLabel($filters['model']),
             'stats' => $stats,
         ]);
     }
@@ -98,6 +103,7 @@ class GroupController
             'group' => $group,
             'events' => $events,
             'relatedModels' => $this->relatedModels($group),
+            'sharedModelKeys' => $this->sharedModelKeys($group),
         ]);
     }
 
@@ -167,6 +173,50 @@ class GroupController
         $this->loadLinkedModels($associations);
 
         return $associations;
+    }
+
+    /**
+     * The chip text for `?model=Type:id`: the model's MailLogLinkable title
+     * when it resolves, else `Type#id`.
+     */
+    private function modelFilterLabel(string $filter): string
+    {
+        $type = Str::beforeLast($filter, ':');
+        $id = Str::afterLast($filter, ':');
+        $fallback = class_basename($type).'#'.$id;
+
+        try {
+            $class = Relation::getMorphedModel($type) ?? $type;
+            $model = is_subclass_of($class, Model::class) ? $class::query()->find($id) : null;
+        } catch (Throwable) {
+            return $fallback;
+        }
+
+        return $model instanceof MailLogLinkable ? $model->mailLogTitle() : $fallback;
+    }
+
+    /**
+     * `type#id` of every model associated with every send in the group. The
+     * Related models panel already lists them, so send rows don't repeat them.
+     *
+     * @return list<string>
+     */
+    private function sharedModelKeys(MailLogGroup $group): array
+    {
+        $sends = (int) $group->getAttribute('events_count');
+
+        if ($sends === 0) {
+            return [];
+        }
+
+        return MailLogAssociation::query()
+            ->whereIn('event_id', MailLog::query()->select('id')->where('group_id', $group->id))
+            ->groupBy('model_type', 'model_id')
+            ->havingRaw('count(*) = ?', [$sends])
+            ->get(['model_type', 'model_id'])
+            ->map(fn (MailLogAssociation $association): string => $association->model_type.'#'.$association->model_id)
+            ->values()
+            ->all();
     }
 
     /**

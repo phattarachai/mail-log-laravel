@@ -2,6 +2,14 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- **The model filter chip names the model.** `?model=` now reads "Model: คุณณัฐญา ส." (the `MailLogLinkable` title) instead of `Customer#1`, falling back to `Type#id` when the model doesn't resolve.
+- **"Also: …" no longer repeats on every send.** A related model that every send in the group shares is listed once, in the Related models panel; a send row shows only the models that are its own.
+- **The "resent" marker uses an icon.** The "↻" character rendered as an odd glyph at 10px in the monospace font; it is now an SVG icon, under the status badge.
+
 ## 0.4.0 — 2026-10-10
 
 ### Added

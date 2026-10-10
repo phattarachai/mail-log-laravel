@@ -52,7 +52,7 @@
                         </thead>
                         <tbody class="divide-y divide-zinc-100">
                             @foreach ($events as $event)
-                                <x-mail-log::event-row :event="$event" />
+                                <x-mail-log::event-row :event="$event" :shared-models="$sharedModelKeys" />
                             @endforeach
                         </tbody>
                     </table>

@@ -41,8 +41,8 @@
 
                 @if (($filters['model'] ?? '') !== '')
                     <input type="hidden" name="model" value="{{ $filters['model'] }}">
-                    <a href="{{ route('mail-log.index', array_filter(array_merge($filters, ['model' => null]))) }}" class="ml-2 inline-flex items-center gap-1 rounded-full bg-zinc-900 px-2.5 py-1 font-mono text-[11px] text-white hover:bg-zinc-700" title="Groups whose primary model is this model, or that have a send associated with it. Click to remove.">
-                        model: {{ class_basename(\Illuminate\Support\Str::beforeLast($filters['model'], ':')) }}#{{ \Illuminate\Support\Str::afterLast($filters['model'], ':') }}
+                    <a href="{{ route('mail-log.index', array_filter(array_merge($filters, ['model' => null]))) }}" class="ml-2 inline-flex max-w-xs items-center gap-1 rounded-full bg-zinc-900 px-2.5 py-1 text-xs text-white hover:bg-zinc-700" title="{{ $filters['model'] }}: groups whose primary model is this model, or that have a send associated with it. Click to remove.">
+                        <span class="text-zinc-400">Model:</span> <span class="truncate">{{ $modelFilterLabel }}</span>
                         <span aria-hidden="true">×</span>
                     </a>
                 @endif

@@ -1,4 +1,4 @@
-@props(['event'])
+@props(['event', 'sharedModels' => []])
 
 @php
     use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
@@ -8,7 +8,8 @@
     $primaryRecipient = collect($event->to ?? [])->first();
     $extraRecipients = max(0, count($event->allRecipients()) - 1);
     $extraModels = $event->relationLoaded('associations')
-        ? $event->associations->reject(fn ($association) => $association->is_primary)
+        ? $event->associations->reject(fn ($association) => $association->is_primary
+            || in_array($association->model_type.'#'.$association->model_id, $sharedModels, true))
         : collect();
     $canResend = $event->isResendable()
         && filter_var(config('mail-log.resend.enabled', true), FILTER_VALIDATE_BOOL);
@@ -21,7 +22,10 @@
     <td class="px-3 py-2 align-top">
         <x-mail-log::status-badge :status="$event->status" />
         @if ($event->resent_from_id)
-            <div class="mt-1 whitespace-nowrap font-mono text-[10px] text-zinc-500" title="Resent from send #{{ $event->resent_from_id }}">↻ resent</div>
+            <div class="mt-1 flex items-center gap-1 whitespace-nowrap text-[11px] text-zinc-500" title="Resent from send #{{ $event->resent_from_id }}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+                resent
+            </div>
         @endif
     </td>
     <td class="px-3 py-2 align-top text-zinc-700">

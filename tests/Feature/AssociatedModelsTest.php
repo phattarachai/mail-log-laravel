@@ -82,8 +82,37 @@ it('lists related models on the group page, linked through MailLogLinkable', fun
         ->assertOk()
         ->assertSee('Related models')
         ->assertSee('href="https://crm.test/customers/'.$emma->id.'"', escape: false)
-        ->assertSee('Also:')
         ->assertSee(route('mail-log.index', ['model' => AssociationCustomer::class.':'.$emma->id]), escape: false);
+});
+
+it('shows a send its own extra models, but not ones every send in the group shares', function (): void {
+    $order = MailLogGroup::factory()->create();
+    $emma = associationCustomer('Emma Carter');
+    $somchai = associationCustomer('Somchai W.');
+
+    Mail::to('a@example.com')->send(new AssociatedOrderMail($order, [$emma, $somchai]));
+    Mail::to('b@example.com')->send(new AssociatedOrderMail($order, [$emma]));
+
+    $group = MailLogGroup::query()->where('mailable_class', AssociatedOrderMail::class)->sole();
+    $html = $this->get(route('mail-log.show', $group))->assertOk()->getContent();
+    $start = strpos($html, 'Sends (');
+    $sendsTable = substr($html, $start, strpos($html, '</table>', $start) - $start);
+
+    expect(substr_count($sendsTable, 'Also:'))->toBe(1)
+        ->and($sendsTable)->toContain('Somchai W.')
+        ->and(substr_count($sendsTable, 'Emma Carter'))->toBe(0);
+});
+
+it('labels the model filter with the MailLogLinkable title', function (): void {
+    $emma = associationCustomer('คุณณัฐญา ส.');
+
+    $this->get(route('mail-log.index', ['model' => AssociationCustomer::class.':'.$emma->id]))
+        ->assertOk()
+        ->assertSee('คุณณัฐญา ส.');
+
+    $this->get(route('mail-log.index', ['model' => 'App\\Models\\Gone:9']))
+        ->assertOk()
+        ->assertSee('Gone#9');
 });
 
 class AssociationCustomer extends Model implements MailLogLinkable
