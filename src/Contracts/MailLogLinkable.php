@@ -6,10 +6,10 @@ namespace Phattarachai\MailLogLaravel\Contracts;
 
 /**
  * Optional contract for Eloquent models attached to a MailLogGroup. Implement
- * on the model to give the dashboard a deep-link back into the host app.
- *
- * Phase 4b's group detail page calls these when the linked model honors the
- * contract — otherwise the model column renders as plain text.
+ * it on the model to give the dashboard a deep link back into the host app:
+ * the Model column on the index and the Model row on the group page render
+ * mailLogTitle(), linked to mailLogUrl() when it returns a URL. Models without
+ * the contract render as `Type#id` text.
  */
 interface MailLogLinkable
 {

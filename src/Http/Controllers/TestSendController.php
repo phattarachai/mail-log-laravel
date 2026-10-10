@@ -43,6 +43,6 @@ class TestSendController
         Mail::to($validated['email'])->send($mailable);
 
         return to_route('mail-log.index')
-            ->with('mail-log:flash', 'ส่งอีเมลทดสอบไปยัง '.$validated['email'].' แล้ว');
+            ->with('mail-log:flash', 'Sent a test email to '.$validated['email'].'.');
     }
 }

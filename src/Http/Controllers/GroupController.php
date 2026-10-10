@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace Phattarachai\MailLogLaravel\Http\Controllers;
 
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Phattarachai\MailLogLaravel\Models\MailLog;
 use Phattarachai\MailLogLaravel\Models\MailLogGroup;
+use Throwable;
 
 class GroupController
 {
@@ -28,15 +33,15 @@ class GroupController
             $eventsTable = (new MailLog)->getTable();
             $groupsTable = (new MailLogGroup)->getTable();
 
-            $query->where(function ($q) use ($term, $eventsTable, $groupsTable): void {
-                $q->where('subject', 'like', $term)
-                    ->orWhere('mailable_class', 'like', $term)
-                    ->orWhere('notification_class', 'like', $term)
-                    ->orWhereExists(function ($sub) use ($term, $eventsTable, $groupsTable): void {
+            $query->where(function (Builder $q) use ($term, $eventsTable, $groupsTable): void {
+                $q->whereLike('subject', $term)
+                    ->orWhereLike('mailable_class', $term)
+                    ->orWhereLike('notification_class', $term)
+                    ->orWhereExists(function (QueryBuilder $sub) use ($term, $eventsTable, $groupsTable): void {
                         $sub->select('id')
                             ->from($eventsTable)
                             ->whereColumn('group_id', $groupsTable.'.id')
-                            ->where('to', 'like', $term);
+                            ->where(fn (QueryBuilder $recipients) => $this->whereRecipientsLike($recipients, $term));
                     });
             });
         }
@@ -52,12 +57,15 @@ class GroupController
 
         $groups = $query
             ->with(['latestEvent'])
+            ->withCount(MailLogGroup::sendCounts())
             ->paginate((int) config('mail-log.ui.page_size', 25))
             ->withQueryString();
 
+        $this->loadLinkedModels($groups->getCollection());
+
         $stats = [
             'groups' => MailLogGroup::query()->count(),
-            'sends' => (int) (MailLogGroup::query()->sum('sent_count') + MailLogGroup::query()->sum('failed_count')),
+            'sends' => MailLog::query()->count(),
         ];
 
         return view('mail-log::index', [
@@ -69,7 +77,8 @@ class GroupController
 
     public function show(Request $request, MailLogGroup $group): View
     {
-        $group->load('media');
+        $group->load('media')->loadCount(MailLogGroup::sendCounts());
+        $this->loadLinkedModels(new EloquentCollection([$group]));
 
         $events = $group->events()
             ->paginate((int) config('mail-log.ui.page_size', 25))
@@ -86,6 +95,43 @@ class GroupController
         $group->delete();
 
         return to_route('mail-log.index')
-            ->with('mail-log:flash', 'ลบกลุ่มและการส่งทั้งหมดในกลุ่มแล้ว');
+            ->with('mail-log:flash', 'Deleted the group and every send in it.');
+    }
+
+    /**
+     * Recipients live in json columns (to / cc / bcc). Postgres compiles a
+     * LIKE on them to `"to"::text ilike ?`; MySQL compares JSON as a binary
+     * string, so lower-case both sides there to keep search case-insensitive
+     * (MariaDbGrammar extends MySqlGrammar).
+     */
+    private function whereRecipientsLike(QueryBuilder $query, string $term): void
+    {
+        $grammar = $query->getGrammar();
+        $isMySql = $grammar instanceof MySqlGrammar;
+
+        foreach (['to', 'cc', 'bcc'] as $column) {
+            if ($isMySql) {
+                $query->orWhereRaw('lower(cast('.$grammar->wrap($column).' as char)) like ?', [mb_strtolower($term)]);
+
+                continue;
+            }
+
+            $query->orWhereLike($column, $term);
+        }
+    }
+
+    /**
+     * Eager-load the host models for MailLogLinkable deep links. A morph type
+     * whose class no longer exists must not take the dashboard down.
+     *
+     * @param  EloquentCollection<int, MailLogGroup>  $groups
+     */
+    private function loadLinkedModels(EloquentCollection $groups): void
+    {
+        try {
+            $groups->load('model');
+        } catch (Throwable) {
+            // MailLogGroup::linkable() resolves per row and degrades to text.
+        }
     }
 }

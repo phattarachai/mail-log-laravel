@@ -8,10 +8,26 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Override;
 use Phattarachai\MailLogLaravel\Database\Factories\MailLogFactory;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 
+/**
+ * @property int $id
+ * @property int $group_id
+ * @property array<int, string> $to
+ * @property array<int, string>|null $cc
+ * @property array<int, string>|null $bcc
+ * @property MailLogStatus $status
+ * @property string|null $error_message
+ * @property float|null $seconds
+ * @property Carbon|null $sent_at
+ * @property Carbon|null $created_at
+ * @property-read MailLogGroup|null $group
+ */
 class MailLog extends Model
 {
     use HasFactory;
@@ -41,6 +57,31 @@ class MailLog extends Model
     public function group(): BelongsTo
     {
         return $this->belongsTo(MailLogGroup::class, 'group_id');
+    }
+
+    /**
+     * Settle this send as Failed and count it on the group, atomically.
+     */
+    public function markFailed(string $message): void
+    {
+        DB::transaction(function () use ($message): void {
+            $this->update([
+                'status' => MailLogStatus::Failed,
+                'error_message' => Str::limit($message, 500),
+            ]);
+
+            $this->group?->recordEvent($this);
+        });
+    }
+
+    /**
+     * Every recipient of this send: to, then cc, then bcc.
+     *
+     * @return array<int, string>
+     */
+    public function allRecipients(): array
+    {
+        return [...$this->to ?? [], ...$this->cc ?? [], ...$this->bcc ?? []];
     }
 
     #[Override]

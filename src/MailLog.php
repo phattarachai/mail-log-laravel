@@ -30,8 +30,9 @@ class MailLog
     protected static ?Closure $authCallback = null;
 
     /**
-     * Format a date as `19 พ.ค. 67 · 14:34` (day + Thai abbrev + 2-digit Buddhist
-     * year + 24-hour time). Hard-coded to Thai for v0.1 (see design-notes.md).
+     * Format a date as `19 พ.ค. 69 · 14:34`: day, Thai month abbreviation,
+     * 2-digit Buddhist-era year, 24-hour time. Every dashboard date uses this
+     * format; it is not configurable.
      */
     public static function dt(?CarbonInterface $date): string
     {

@@ -26,7 +26,10 @@
         </div>
         <div>
             <div class="text-[11px] uppercase text-zinc-500">Sends</div>
-            <div class="mt-1 font-mono text-xl font-semibold tracking-tight text-zinc-900">{{ $group->sent_count + $group->failed_count }}</div>
+            <div class="mt-1 font-mono text-xl font-semibold tracking-tight text-zinc-900">{{ $group->totalSends() }}</div>
+            @if (($pending = $group->pendingSends()) > 0)
+                <div class="text-[11px] text-amber-700">{{ $pending }} pending</div>
+            @endif
         </div>
         <div>
             <div class="text-[11px] uppercase text-zinc-500">Failed</div>

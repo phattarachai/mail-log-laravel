@@ -5,7 +5,7 @@
         <div class="mx-auto flex max-w-7xl items-center gap-3 px-6 py-3 text-sm">
             <a href="{{ route('mail-log.index') }}" class="inline-flex items-center gap-1.5 text-zinc-500 hover:text-zinc-900">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
-                กลับ
+                Back
             </a>
             <span class="text-zinc-300">/</span>
             <a href="{{ route('mail-log.index') }}" class="text-zinc-500 hover:text-zinc-900">{{ config('mail-log.ui.brand', 'Mail Log') }}</a>
@@ -47,7 +47,7 @@
                             <tr class="border-b border-zinc-100 text-left text-[11px] font-medium uppercase text-zinc-500">
                                 <th class="px-3 py-2 font-medium">Status</th>
                                 <th class="px-3 py-2 font-medium">Recipient</th>
-                                <th class="px-3 py-2 font-medium">Sent</th>
+                                <th class="px-3 py-2 font-medium" title="When the send was confirmed; the attempt time for pending and failed sends">Time</th>
                                 <th class="px-3 py-2 font-medium">Duration</th>
                                 <th class="px-3 py-2 font-medium"></th>
                             </tr>
@@ -95,11 +95,7 @@
                     <div class="grid grid-cols-3 gap-2 px-4 py-2">
                         <dt class="text-xs text-zinc-500">Model</dt>
                         <dd class="col-span-2 truncate font-mono text-xs text-zinc-800">
-                            @if ($group->model_type && $group->model_id)
-                                {{ $group->model_type }}#{{ $group->model_id }}
-                            @else
-                                —
-                            @endif
+                            <x-mail-log::model-link :group="$group" />
                         </dd>
                     </div>
                     <div class="grid grid-cols-3 gap-2 px-4 py-2">
@@ -109,7 +105,7 @@
                 </dl>
             </div>
 
-            <x-mail-log::recipients-accordion :group="$group" />
+            <x-mail-log::recipients-list :group="$group" />
 
             <x-mail-log::attachments-list :group="$group" />
         </aside>

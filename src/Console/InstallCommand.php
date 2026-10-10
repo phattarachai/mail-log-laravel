@@ -189,12 +189,14 @@ class InstallCommand extends Command
             }
             PHP);
 
-        $this->writeRawHeader('Schedule pruning of old groups (events cascade-delete via FK):');
+        $this->writeRawHeader('Schedule pruning of old groups and settling of stale Pending sends:');
         $this->writeRawSnippet(<<<'PHP'
-            // bootstrap/app.php (Laravel 11+) — inside ->withSchedule(function (Schedule $schedule) { ... }):
-            $schedule->command('model:prune', [
-                '--model' => [\Phattarachai\MailLogLaravel\Models\MailLogGroup::class],
-            ])->daily();
+            // routes/console.php
+            use Illuminate\Support\Facades\Schedule;
+            use Phattarachai\MailLogLaravel\Models\MailLogGroup;
+
+            Schedule::command('model:prune', ['--model' => [MailLogGroup::class]])->daily();
+            Schedule::command('mail-log:settle-stale')->everyTenMinutes();
             PHP);
     }
 

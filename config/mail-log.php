@@ -4,7 +4,8 @@ declare(strict_types=1);
 use Phattarachai\MailLogLaravel\Http\Middleware\Authorize;
 
 return [
-    'enabled' => env('MAIL_LOG_ENABLED', default: true),
+    // Parsed with FILTER_VALIDATE_BOOL so MAIL_LOG_ENABLED=1 / "true" / "on" all enable capture.
+    'enabled' => filter_var(env('MAIL_LOG_ENABLED', default: true), FILTER_VALIDATE_BOOL),
 
     'tables' => [
         'groups' => env('MAIL_LOG_TABLE_GROUPS', 'mail_log_groups'),
@@ -14,6 +15,28 @@ return [
     // Prunable retention applied to GROUPS keyed on updated_at — events cascade-delete via FK.
     // null = never prune.
     'retention_days' => env('MAIL_LOG_RETENTION_DAYS', 365),
+
+    // A send that never confirms (MessageSent) stays Pending. Rows still Pending after this
+    // many minutes are settled as Failed by `php artisan mail-log:settle-stale` — schedule it.
+    'pending_timeout_minutes' => (int) env('MAIL_LOG_PENDING_TIMEOUT_MINUTES', 15),
+
+    // The group stores the FIRST send's body as its preview. Mail without the HasMailLog
+    // trait (password reset, email verification, magic links) carries one recipient's
+    // secret URL, so the stored html/text body is masked with these patterns before saving.
+    // Fingerprinting is unaffected (see fingerprint.body_strip_patterns).
+    'redact' => [
+        'enabled' => filter_var(env('MAIL_LOG_REDACT_BODIES', default: true), FILTER_VALIDATE_BOOL),
+
+        // pattern => replacement, applied in order with preg_replace().
+        'patterns' => [
+            // ?token=… &signature=… &amp;expires=… (query values, raw or HTML-escaped)
+            '/([?&;](?:token|signature|expires|_token|code|hash|otp)=)[^&"\'\s<>]+/i' => '$1[redacted]',
+            // /password/reset/{token}, /reset-password/{token}
+            '#(/(?:password/reset|reset-password)/)[^/?&"\'\s<>]+#i' => '$1[redacted]',
+            // /email/verify/{id}/{hash}, /verify-email/{id}/{hash}
+            '#(/(?:email/verify|verify-email)/[^/?&"\'\s<>]+/)[^/?&"\'\s<>]+#i' => '$1[redacted]',
+        ],
+    ],
 
     'attachments' => [
         'disk' => env('MAIL_LOG_ATTACHMENT_DISK'),

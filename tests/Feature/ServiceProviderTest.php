@@ -5,11 +5,13 @@ declare(strict_types=1);
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Phattarachai\MailLogLaravel\Http\Middleware\Authorize;
 use Phattarachai\MailLogLaravel\Listeners\LogOutgoingMail;
 use Phattarachai\MailLogLaravel\MailLog;
+use Phattarachai\MailLogLaravel\MailLogServiceProvider;
 use Phattarachai\MailLogLaravel\Support\Fingerprinter;
 
 it('merges the package config', function (): void {
@@ -75,3 +77,35 @@ it('exposes the LogOutgoingMail listener handlers', function (): void {
         ->and(method_exists($listener, 'handleSent'))->toBeTrue()
         ->and(method_exists($listener, 'handleFailed'))->toBeTrue();
 });
+
+it('parses MAIL_LOG_ENABLED from the environment as a boolean', function (string $value, bool $expected): void {
+    Env::getRepository()->set('MAIL_LOG_ENABLED', $value);
+
+    try {
+        $config = require __DIR__.'/../../config/mail-log.php';
+    } finally {
+        Env::getRepository()->clear('MAIL_LOG_ENABLED');
+    }
+
+    expect($config['enabled'])->toBe($expected);
+})->with([
+    ['1', true],
+    ['true', true],
+    ['on', true],
+    ['0', false],
+    ['false', false],
+]);
+
+it('registers the listeners for any truthy enabled value, including a string from an older published config', function (mixed $enabled, bool $expected): void {
+    Event::forget(MessageSending::class);
+    config()->set('mail-log.enabled', $enabled);
+
+    new MailLogServiceProvider($this->app)->boot();
+
+    expect(Event::hasListeners(MessageSending::class))->toBe($expected);
+})->with([
+    ['1', true],
+    [true, true],
+    ['0', false],
+    [false, false],
+]);

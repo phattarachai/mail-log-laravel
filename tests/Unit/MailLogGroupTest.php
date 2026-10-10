@@ -150,3 +150,20 @@ it('aggregates unique recipients across events', function (): void {
 
     expect($unique)->toBe(['a@example.com', 'b@example.com']);
 });
+
+it('lists recipients from to, cc and bcc in the order they were first mailed', function (): void {
+    $group = MailLogGroup::factory()->create();
+    MailLog::factory()->for($group, 'group')->create([
+        'to' => ['customer@example.com'],
+        'cc' => ['warehouse@example.com'],
+        'bcc' => ['audit@example.com'],
+        'created_at' => now()->subHour(),
+    ]);
+    MailLog::factory()->for($group, 'group')->create([
+        'to' => ['warehouse@example.com'],
+        'created_at' => now(),
+    ]);
+
+    expect($group->uniqueRecipients()->all())
+        ->toBe(['customer@example.com', 'warehouse@example.com', 'audit@example.com']);
+});

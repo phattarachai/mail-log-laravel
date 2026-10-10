@@ -162,6 +162,16 @@ class Fingerprinter
             $text = (string) preg_replace($patterns, '', $text);
         }
 
+        // The redaction patterns mask the same per-recipient secrets, so they
+        // keep the hash stable even when redact.enabled is false or a published
+        // config predates a strip pattern (e.g. /reset-password/{token}).
+        $masks = (array) config('mail-log.redact.patterns', []);
+
+        if ($masks !== []) {
+            $html = (string) preg_replace(array_keys($masks), array_values($masks), $html);
+            $text = (string) preg_replace(array_keys($masks), array_values($masks), $text);
+        }
+
         return hash('sha256', $html."\n--\n".$text);
     }
 

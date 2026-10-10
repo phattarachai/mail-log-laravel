@@ -1,7 +1,7 @@
 ---
 name: mail-log
 description: Use this skill when the user wants to wire up Mail Log (an outbound-mail logger for Laravel) into a project, or asks about per-Mailable dedup grouping, the `/mail-log` dashboard, or the `HasMailLog` trait. Covers the `phattarachai/mail-log-laravel` package end-to-end via the `mail-log:install` command — publishes config + migrations + Spatie media migration, writes env keys, prints integration snippets (auth gate, morph map, `HasMailLog` trait, scheduled prune). Group/events split — one row per fingerprint (`mail_log_groups`) + one row per send (`mail_logs`). Fingerprint defaults to Mailable class + Eloquent model so the same template to many recipients lands in one group. Triggers on mentions of mail-log, MAIL_LOG_ENABLED, MAIL_LOG_RETENTION_DAYS, HasMailLog, `/mail-log` dashboard, "log outgoing mail", "track sent emails", "group emails by template", "mailable dedup", "test-send modal", "mail log retention", or "set up mail logging".
-version: 2026.05.19.1
+version: 2026.10.10.1
 ---
 
 # Mail Log
@@ -35,7 +35,7 @@ After install, paste the **auth gate** snippet into `AppServiceProvider::boot()`
 
 Mail Log uses two tables in lock-step:
 
-- **`mail_log_groups`** (one row per fingerprint) — what the user sees at `/mail-log`. Carries `subject`, `mailable_class`, the morphTo `model`, `mailer`, `sent_count`, `failed_count`, `latest_status`, and the **first-send** `html_body` / `text_body` / attachments. Body is a representative preview only; per-recipient body variation (signed URLs, magic links, personalized greetings) is NOT captured per row.
+- **`mail_log_groups`** (one row per fingerprint) — what the user sees at `/mail-log`. Carries `subject`, `mailable_class`, the morphTo `model`, `mailer`, `sent_count`, `failed_count`, `latest_status`, and the **first-send** `html_body` / `text_body` / attachments. Body is a representative preview only; per-recipient body variation (signed URLs, magic links, personalized greetings) is NOT captured per row, and reset tokens / URL signatures / verify hashes are stored as `[redacted]` (`MAIL_LOG_REDACT_BODIES`, on by default).
 - **`mail_logs`** (one row per `Mail::send()` call, append-only) — captures `to` / `cc` / `bcc` / `status` / `error_message` / `seconds` / `sent_at`. Cascade-deletes when the parent group is deleted.
 
 A fingerprint of `class + model` means: same Mailable + same `Order #1042` to 10 recipients = **one group with `sent_count=10` and 10 event rows**. Different Order → different group. The dashboard list page (`/mail-log`) is the group view; the detail page (`/mail-log/{group}`) shows the Sends table with per-recipient outcomes.
@@ -93,7 +93,7 @@ The raw path falls back to the body-hash fingerprint, so subsequent smoke tests 
 
 For a real Mailable + model send, open `/mail-log` → the group should appear at the top with `latest_status=sent` and the recipient under "Recipients".
 
-If a queued mailable failed, the package's `JobFailed` listener flips the most-recent PENDING event in the matching group to FAILED + bumps `failed_count`. The error chip on the index row + the Sends-table error expander show the truncated message.
+A send whose transport throws becomes FAILED with the exception message: queued mailables and queued notifications on each failed attempt, synchronous `Mail::send()` at the end of the request. Anything left Pending past `MAIL_LOG_PENDING_TIMEOUT_MINUTES` (default 15) is settled by `php artisan mail-log:settle-stale`. The error chip on the index row + the Sends-table error expander show the truncated message.
 
 ## Common workflows
 
@@ -101,7 +101,17 @@ If a queued mailable failed, the package's `JobFailed` listener flips the most-r
 
 **"How do I hide this Mailable from the dashboard?"** Override `mailLogSkip(): bool { return true; }` on the Mailable. The listener short-circuits before any DB write.
 
-**"How do I retain only N days of mail history?"** Set `MAIL_LOG_RETENTION_DAYS` in `.env` (default 365, `null` = never prune). The package implements `Prunable` on `MailLogGroup`; schedule `php artisan model:prune` daily (the install command prints the snippet). Events cascade-delete via FK when their parent group is pruned.
+**"How do I retain only N days of mail history?"** Set `MAIL_LOG_RETENTION_DAYS` in `.env` (default 365, `null` = never prune). The package implements `Prunable` on `MailLogGroup`; schedule `model:prune` daily and `mail-log:settle-stale` every ten minutes in `routes/console.php`:
+
+```php
+use Illuminate\Support\Facades\Schedule;
+use Phattarachai\MailLogLaravel\Models\MailLogGroup;
+
+Schedule::command('model:prune', ['--model' => [MailLogGroup::class]])->daily();
+Schedule::command('mail-log:settle-stale')->everyTenMinutes();
+```
+
+Events cascade-delete via FK when their parent group is pruned.
 
 **"How do I expose `/mail-log` to non-debug users?"** Register `MailLog::auth(fn ($request) => $request->user()?->isAdmin())` in `AppServiceProvider::boot()`. The install command prints the exact snippet.
 

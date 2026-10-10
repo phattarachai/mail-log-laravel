@@ -13,14 +13,36 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Override;
+use Phattarachai\MailLogLaravel\Contracts\MailLogLinkable;
 use Phattarachai\MailLogLaravel\Database\Factories\MailLogGroupFactory;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Throwable;
 
+/**
+ * @property int $id
+ * @property string $fingerprint
+ * @property string|null $subject
+ * @property string|null $from
+ * @property string|null $mailable_class
+ * @property string|null $notification_class
+ * @property string|null $model_type
+ * @property string|null $model_id
+ * @property string|null $mailer
+ * @property string|null $html_body
+ * @property string|null $text_body
+ * @property int $sent_count
+ * @property int $failed_count
+ * @property MailLogStatus|null $latest_status
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property-read MailLog|null $latestEvent
+ */
 class MailLogGroup extends Model implements HasMedia
 {
     use HasFactory;
@@ -93,16 +115,82 @@ class MailLogGroup extends Model implements HasMedia
     }
 
     /**
-     * Distinct recipients aggregated across every event in this group.
+     * Aggregates the dashboard reads through totalSends() / pendingSends(),
+     * for withCount() / loadCount().
+     *
+     * @return array<int|string, mixed>
+     */
+    public static function sendCounts(): array
+    {
+        return [
+            'events',
+            'events as pending_count' => fn (Builder $events) => $events->where('status', MailLogStatus::Pending),
+        ];
+    }
+
+    /**
+     * Every send in the group: sent + failed + still pending. Uses the
+     * events_count / pending_count aggregates when the query loaded them.
+     */
+    public function totalSends(): int
+    {
+        $loaded = $this->getAttributes()['events_count'] ?? null;
+
+        if ($loaded !== null) {
+            return (int) $loaded;
+        }
+
+        return $this->sent_count + $this->failed_count + $this->pendingSends();
+    }
+
+    public function pendingSends(): int
+    {
+        $loaded = $this->getAttributes()['pending_count'] ?? null;
+
+        if ($loaded !== null) {
+            return (int) $loaded;
+        }
+
+        return $this->events()->where('status', MailLogStatus::Pending)->count();
+    }
+
+    /**
+     * Distinct recipients across every send in the group, in the order they
+     * were first mailed (oldest send first). Within a send, `to` comes before
+     * `cc` and `bcc`, so the primary recipient of the first send leads.
+     *
+     * @return Collection<int, string>
      */
     public function uniqueRecipients(): Collection
     {
-        return $this->events()
-            ->get(['to'])
-            ->pluck('to')
-            ->flatten(1)
+        return MailLog::query()
+            ->where('group_id', $this->id)
+            ->oldest('created_at')
+            ->oldest('id')
+            ->get(['to', 'cc', 'bcc'])
+            ->flatMap(fn (MailLog $event): array => $event->allRecipients())
             ->unique()
             ->values();
+    }
+
+    /**
+     * The originating host model when it implements MailLogLinkable. Never
+     * throws: a morph type whose class is gone, or a blocked lazy load,
+     * falls back to null and the dashboard renders type#id as text.
+     */
+    public function linkable(): ?MailLogLinkable
+    {
+        if ($this->model_type === null || $this->model_id === null) {
+            return null;
+        }
+
+        try {
+            $model = $this->getRelationValue('model');
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $model instanceof MailLogLinkable ? $model : null;
     }
 
     /**

@@ -30,8 +30,9 @@
     },
     "require-dev": {
         "driftingly/rector-laravel": "^2.5",
+        "larastan/larastan": "^3.10",
         "laravel/pint": "^1.29",
-        "orchestra/testbench": "^10.0",
+        "orchestra/testbench": "^10.8|^11.0",
         "pestphp/pest": "^4.0",
         "pestphp/pest-plugin-laravel": "^4.0",
         "rector/rector": "^2.5"
@@ -50,7 +51,9 @@
     "scripts": {
         "test": "vendor/bin/pest",
         "refactor": "vendor/bin/rector process",
-        "lint": "vendor/bin/pint"
+        "lint": "vendor/bin/pint",
+        "analyse": "vendor/bin/phpstan analyse",
+        "format": "vendor/bin/pint"
     },
     "extra": {
         "laravel": {

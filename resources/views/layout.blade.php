@@ -1,15 +1,14 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="csrf-token" content="{{ csrf_token() }}" />
     <title>{{ $title ?? config('mail-log.ui.brand', 'Mail Log') }} · {{ config('mail-log.ui.brand', 'Mail Log') }}</title>
-    <link rel="stylesheet" href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600|ibm-plex-sans-thai:400,500|jetbrains-mono:400,500" />
     {{ \Phattarachai\MailLogLaravel\MailLog::css() }}
     {{ \Phattarachai\MailLogLaravel\MailLog::js() }}
 </head>
-<body class="min-h-screen bg-white text-zinc-900 antialiased" x-data="mailLogShell()">
+<body class="min-h-screen bg-white text-zinc-900 antialiased">
 
 @if (session('mail-log:flash'))
     <div class="border-b border-emerald-200 bg-emerald-50 px-6 py-2 text-xs text-emerald-700">
@@ -37,14 +36,6 @@
         </a>
 
         <div class="ml-auto flex items-center gap-1">
-            <button
-                type="button"
-                @click="toggleTheme()"
-                class="grid h-8 w-8 place-items-center rounded-md text-zinc-500 hover:bg-zinc-100"
-                title="Toggle theme"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636"/><circle cx="12" cy="12" r="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
 
             @if (config('mail-log.test_send.enabled', true))
                 <x-mail-log::test-send-modal />

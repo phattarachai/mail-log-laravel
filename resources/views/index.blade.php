@@ -11,7 +11,7 @@
                         name="search"
                         value="{{ $filters['search'] ?? '' }}"
                         class="h-9 w-72 rounded-md border border-zinc-200 bg-white pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-100"
-                        placeholder="ค้นหา subject, recipient, mailable class…"
+                        placeholder="Search subject, recipient, mailable class…"
                     >
                 </div>
 
@@ -63,8 +63,9 @@
                         <th class="px-3 py-2.5 font-medium">Subject</th>
                         <th class="px-3 py-2.5 font-medium">Recipients</th>
                         <th class="px-3 py-2.5 font-medium">Mailable</th>
+                        <th class="px-3 py-2.5 font-medium">Model</th>
                         <th class="px-3 py-2.5 font-medium">Mailer</th>
-                        <th class="px-3 py-2.5 text-right font-medium" title="Send count">× <span class="font-normal lowercase">sends</span></th>
+                        <th class="whitespace-nowrap px-3 py-2.5 text-right font-medium" title="Send count, pending included">× <span class="font-normal lowercase">sends</span></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-zinc-100">

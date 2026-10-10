@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -62,6 +63,7 @@ it('flips the event to FAILED and bumps failed_count on JobFailed', function ():
     $queued = new SendQueuedMailable($mailable);
 
     $job = Mockery::mock(Job::class);
+    $job->shouldReceive('uuid')->andReturn(null);
     $job->shouldReceive('payload')->andReturn([
         'data' => [
             'commandName' => SendQueuedMailable::class,
@@ -103,6 +105,7 @@ it('reflects the most recent event status when mixed outcomes are recorded', fun
     $queued = new SendQueuedMailable($mailable);
 
     $job = Mockery::mock(Job::class);
+    $job->shouldReceive('uuid')->andReturn(null);
     $job->shouldReceive('payload')->andReturn([
         'data' => [
             'commandName' => SendQueuedMailable::class,
@@ -127,7 +130,7 @@ it('calculates seconds from the X-Mail-Log-Start header set during handleSending
     Mail::to('a@example.com')->send(new OutcomeOrderMail($order));
 
     $event = MailLog::query()
-        ->whereHas('group', fn ($q) => $q->where('mailable_class', OutcomeOrderMail::class))
+        ->whereHas('group', fn (Builder $q) => $q->where('mailable_class', OutcomeOrderMail::class))
         ->firstOrFail();
 
     expect($event->seconds)->toBeFloat()

@@ -8,12 +8,12 @@
     </div>
 
     @if ($filtered)
-        <h2 class="mt-4 text-base font-semibold text-zinc-900">ไม่พบผลลัพธ์</h2>
-        <p class="mt-1 text-sm text-zinc-500">ลองล้างตัวกรองหรือเปลี่ยนคีย์เวิร์ดที่ใช้ค้นหา</p>
-        <a href="{{ route('mail-log.index') }}" class="mt-4 inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50">ล้างตัวกรอง</a>
+        <h2 class="mt-4 text-base font-semibold text-zinc-900">No matching groups</h2>
+        <p class="mt-1 text-sm text-zinc-500">Clear the filters or try a different search.</p>
+        <a href="{{ route('mail-log.index') }}" class="mt-4 inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50">Clear filters</a>
     @else
-        <h2 class="mt-4 text-base font-semibold text-zinc-900">ยังไม่มีประวัติการส่งเมล์</h2>
-        <p class="mt-1 text-sm text-zinc-500">เมื่อแอปพลิเคชันส่งอีเมลแรก รายการจะปรากฏที่นี่ แต่ละกลุ่มจะรวมการส่งซ้ำของ Mailable + Model เดียวกันเข้าด้วยกัน</p>
+        <h2 class="mt-4 text-base font-semibold text-zinc-900">No mail sent yet</h2>
+        <p class="mt-1 text-sm text-zinc-500">The first email this application sends appears here. Each group collects every send of the same Mailable + model.</p>
 
         @if (config('mail-log.test_send.enabled', true))
             <button
@@ -22,7 +22,7 @@
                 class="mt-4 inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/></svg>
-                ทดสอบส่งอีเมล
+                Send a test email
             </button>
         @endif
     @endif

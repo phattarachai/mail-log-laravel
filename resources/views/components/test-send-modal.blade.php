@@ -27,8 +27,8 @@
                 @csrf
 
                 <div>
-                    <h2 class="text-base font-semibold text-zinc-900">ทดสอบส่งอีเมล</h2>
-                    <p class="mt-1 text-xs text-zinc-500">ส่งอีเมลทดสอบจากแอปพลิเคชัน แล้วดูผลลัพธ์ในกลุ่มของ Mail Log</p>
+                    <h2 class="text-base font-semibold text-zinc-900">Send a test email</h2>
+                    <p class="mt-1 text-xs text-zinc-500">Sends a test email from this application, then shows the result as a Mail Log group.</p>
                 </div>
 
                 @if ($errors->any())
@@ -60,7 +60,7 @@
                         name="message"
                         rows="3"
                         class="mt-1 block w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-100"
-                        placeholder="ข้อความที่ต้องการทดสอบ (เว้นว่างเพื่อใช้ค่าเริ่มต้น)"
+                        placeholder="Message to send (leave empty for the default)"
                     >{{ old('message') }}</textarea>
                 </div>
 
@@ -76,9 +76,9 @@
                 </div>
 
                 <div class="flex items-center justify-end gap-2 pt-1">
-                    <button type="button" @click="hide()" class="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100">ยกเลิก</button>
+                    <button type="button" @click="hide()" class="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100">Cancel</button>
                     <button type="submit" class="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800">
-                        ส่งอีเมลทดสอบ
+                        Send test email
                     </button>
                 </div>
             </form>

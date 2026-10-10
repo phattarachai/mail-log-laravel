@@ -2,6 +2,48 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## 0.3.0 — 2026-10-10
+
+### Fixed
+
+- **Failed sends no longer stay Pending forever.** The listener now remembers the sends its request or job started and settles any that never fire `MessageSent` as Failed, with the exception message:
+  - queued **Notifications** (`SendQueuedNotifications`) whose mail fails in the transport. Only queued Mailables were handled before.
+  - queued jobs with `tries > 1`: every failed attempt is recorded as Failed (`Attempt 1 failed, the job will retry: …`) instead of leaving a Pending row per attempt.
+  - synchronous `Mail::send()` that throws in the transport, settled when the request or command terminates.
+  - sends a job caught and swallowed itself, settled on `JobProcessed`.
+- **New `mail-log:settle-stale` command** for what no in-process signal can reach (a worker killed mid-send, a timeout retried on another worker). It marks sends still Pending after `pending_timeout_minutes` (default 15, `MAIL_LOG_PENDING_TIMEOUT_MINUTES`) as Failed. **Schedule it** every ten minutes (see the README).
+- **`MAIL_LOG_ENABLED=1` silently disabled capture.** The provider registered listeners only for `=== true`, and `env()` returns `"1"` as a string. The config now parses it with `FILTER_VALIDATE_BOOL`, and the provider does the same so older published configs work too.
+- **Reset-password mails split into one group per token.** The raw-path fingerprint stripped `/password/reset/{token}` but not `/reset-password/{token}`, which is the route Breeze, Fortify and the starter kits use. The body hash now also applies the redaction patterns.
+- Removed the dead `X-Mail-Log-Event-Id` lookup on `JobFailed`. That header only exists on the sent Symfony message, never on the queued Mailable. The class + model fallback stays for a queued Mailable whose sending attempt ran in another process.
+- **Search is case-insensitive on every driver** (`ilike` on PostgreSQL, a lower-cased cast on MySQL's JSON columns) and now matches `cc` and `bcc` recipients too.
+- **Dashboard UI:**
+  - The **Sends** count (index column, index total, group stats) includes Pending sends, which were counted as 0. The group page also shows "N pending".
+  - "first HH:MM" under *Last sent* shows the full date when the group started on an earlier day.
+  - The Sends table's time column (renamed **Time**) shows when the send was confirmed (`sent_at`), falling back to the attempt time for Pending and Failed sends.
+  - The "N failed" chip and the "× sends" header no longer wrap.
+  - The body preview iframe grows to fit the mail instead of a fixed 600px, and can be resized.
+
+### Added
+
+- **Body redaction, on by default.** The group's stored `html_body` / `text_body` came verbatim from the first send. For mail without the trait (Laravel's `ResetPassword` / `VerifyEmail`, magic links), that meant the first recipient's live token URL showed in the dashboard preview. Token, signature, expires, code, hash and otp query values plus reset and verify path segments are now stored as `[redacted]`. Configure with `redact.enabled` (`MAIL_LOG_REDACT_BODIES`) and `redact.patterns`. Rows stored before 0.3.0 keep their body until deleted or pruned.
+- **`MailLogLinkable` deep links.** A new Model column on the index and the group page's Model row render `mailLogTitle()`, linked to `mailLogUrl()`. Models without the contract render as `Order#42`, and a `model_type` whose class no longer exists degrades to text.
+- CI on GitHub Actions: PHP 8.4 / 8.5 × Laravel 12 / 13 (lowest and stable), plus PostgreSQL and MySQL jobs. Also PHPStan (Larastan level 5), Pint, release-drafter and Dependabot.
+
+### Changed
+
+- **Dashboard chrome is English throughout.** The Thai strings (breadcrumb, search placeholder, empty states, test-send modal, flash messages) are now English, matching the rest of the UI. Dates keep the Thai format `19 พ.ค. 69 · 15:07`; the README documents it.
+- **Recipients** are now the distinct `to`, `cc` and `bcc` addresses in the order they were first mailed. Before, they were `to` only, newest first.
+- The dashboard loads no third-party fonts (fonts.bunny.net). It uses the system font stack.
+- Removed the theme toggle. It never had dark styles behind it.
+- The `recipients-accordion` view component is renamed `recipients-list`. If you published the views, rename your override.
+- The install command's schedule snippet uses the `routes/console.php` form and adds `mail-log:settle-stale`.
+
+### Upgrading
+
+- Add the new keys to a published `config/mail-log.php`: `enabled` with `filter_var(..., FILTER_VALIDATE_BOOL)`, `pending_timeout_minutes`, and the `redact` block. The defaults apply when they are missing, except the `enabled` parsing, which the provider now handles anyway.
+- Schedule `mail-log:settle-stale`.
+- No migration.
+
 ## 0.2.1 — 2026-06-22
 
 ### Fixed

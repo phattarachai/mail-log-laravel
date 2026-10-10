@@ -6,9 +6,7 @@
 
     /** @var \Phattarachai\MailLogLaravel\Models\MailLog $event */
     $primaryRecipient = collect($event->to ?? [])->first();
-    $extraRecipients = max(0, count($event->to ?? []) - 1)
-        + count($event->cc ?? [])
-        + count($event->bcc ?? []);
+    $extraRecipients = max(0, count($event->allRecipients()) - 1);
 @endphp
 
 <tr class="hover:bg-zinc-50">
@@ -25,7 +23,7 @@
             <span class="text-zinc-400">—</span>
         @endif
     </td>
-    <td class="px-3 py-2 align-top font-mono text-[11px] text-zinc-500">{{ MailLog::dt($event->created_at) }}</td>
+    <td class="px-3 py-2 align-top font-mono text-[11px] text-zinc-500">{{ MailLog::dt($event->sent_at ?? $event->created_at) }}</td>
     <td class="px-3 py-2 align-top font-mono text-[11px] text-zinc-500">
         @if ($event->seconds !== null)
             {{ number_format($event->seconds, 3) }}s

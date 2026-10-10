@@ -18,7 +18,7 @@ class EventController
         return response()->json([
             'id' => $event->id,
             'group_id' => $event->group_id,
-            'status' => $event->status?->value,
+            'status' => $event->status->value,
             'to' => $event->to,
             'cc' => $event->cc,
             'bcc' => $event->bcc,

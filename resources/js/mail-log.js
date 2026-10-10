@@ -1,38 +1,5 @@
 import Alpine from 'alpinejs'
 
-const themeKey = 'mail-log:theme'
-
-function applyTheme(theme) {
-    const root = document.documentElement
-    if (theme === 'dark') {
-        root.classList.add('dark')
-    } else {
-        root.classList.remove('dark')
-    }
-}
-
-function preferredTheme() {
-    const stored = localStorage.getItem(themeKey)
-    if (stored === 'dark' || stored === 'light') {
-        return stored
-    }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-applyTheme(preferredTheme())
-
-Alpine.data('mailLogShell', () => ({
-    theme: preferredTheme(),
-    init() {
-        applyTheme(this.theme)
-    },
-    toggleTheme() {
-        this.theme = this.theme === 'dark' ? 'light' : 'dark'
-        localStorage.setItem(themeKey, this.theme)
-        applyTheme(this.theme)
-    },
-}))
-
 Alpine.data('bodyPreview', (html, text) => ({
     mode: 'html',
     html,
@@ -43,6 +10,17 @@ Alpine.data('bodyPreview', (html, text) => ({
     },
     init() {
         this.render()
+    },
+    // The frame is sandboxed without allow-scripts, so the mail's own code never
+    // runs; allow-same-origin only lets this page measure the rendered height.
+    fitToContent() {
+        const frame = this.$refs.frame
+        const doc = frame?.contentDocument
+        if (!doc) {
+            return
+        }
+        const height = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight ?? 0)
+        frame.style.height = `${Math.max(height, 160)}px`
     },
     render() {
         const frame = this.$refs.frame

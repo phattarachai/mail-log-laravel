@@ -4,30 +4,57 @@ declare(strict_types=1);
 
 namespace Phattarachai\MailLogLaravel\Listeners;
 
+use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Mail\SendQueuedMailable;
+use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Phattarachai\MailLogLaravel\Models\MailLog;
 use Phattarachai\MailLogLaravel\Models\MailLogGroup;
+use Phattarachai\MailLogLaravel\Support\BodyRedactor;
 use Phattarachai\MailLogLaravel\Support\Fingerprinter;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Header\HeaderInterface;
-use Symfony\Component\Mime\Part\DataPart;
 use Throwable;
 
+/**
+ * Bound as a scoped singleton: it remembers the events this process created
+ * whose send has not confirmed yet ("in flight"), so a failure signal raised
+ * later in the same request or job settles exactly those rows.
+ */
 class LogOutgoingMail
 {
-    public function __construct(private readonly Fingerprinter $fingerprinter) {}
+    public const string UNCONFIRMED_MESSAGE = 'No MessageSent was fired for this send: the transport threw, or another MessageSending listener cancelled it. Check the application log for the exception.';
+
+    /**
+     * Event ids created by this process that are still waiting for MessageSent.
+     *
+     * @var array<int, int>
+     */
+    private array $inFlight = [];
+
+    /**
+     * Uuids of jobs whose failure this process already settled from $inFlight.
+     *
+     * @var array<string, true>
+     */
+    private array $settledJobs = [];
+
+    public function __construct(
+        private readonly Fingerprinter $fingerprinter,
+        private readonly BodyRedactor $redactor,
+    ) {}
 
     public function handleSending(MessageSending $event): ?bool
     {
-        if (! config('mail-log.enabled', default: true)) {
+        if (! filter_var(config('mail-log.enabled', default: true), FILTER_VALIDATE_BOOL)) {
             return null;
         }
 
@@ -54,6 +81,8 @@ class LogOutgoingMail
                 ]);
             });
 
+            $this->inFlight[$eventRow->id] = $eventRow->id;
+
             $headers = $message->getHeaders();
             $headers->addTextHeader('X-Mail-Log-Event-Id', (string) $eventRow->id);
             $headers->addTextHeader('X-Mail-Log-Start', (string) microtime(as_float: true));
@@ -73,6 +102,8 @@ class LogOutgoingMail
             if ($eventId === null) {
                 return;
             }
+
+            unset($this->inFlight[(int) $eventId]);
 
             $row = MailLog::query()->find($eventId);
 
@@ -94,64 +125,143 @@ class LogOutgoingMail
         }
     }
 
+    /**
+     * Fires on every failed attempt of every job, after JobFailed on the last
+     * one. Mail the attempt sent but never confirmed is settled as Failed, so
+     * a retried job leaves one Failed row per failed attempt instead of a
+     * trail of Pending ones.
+     */
+    public function handleJobException(JobExceptionOccurred $event): void
+    {
+        $isFinalAttempt = $event->job->hasFailed() || $event->job instanceof SyncJob;
+
+        $message = $isFinalAttempt
+            ? $event->exception->getMessage()
+            : sprintf('Attempt %d failed, the job will retry: %s', $event->job->attempts(), $event->exception->getMessage());
+
+        if ($this->settleInFlight($message)) {
+            $this->rememberSettled($event->job->uuid());
+        }
+    }
+
+    /**
+     * A job finished without throwing, but a send inside it may still have
+     * thrown and been caught by the job itself.
+     */
+    public function handleJobProcessed(JobProcessed $event): void
+    {
+        $this->settleInFlight(self::UNCONFIRMED_MESSAGE);
+    }
+
+    /**
+     * Any queued job (SendQueuedMailable, SendQueuedNotifications, or the host's
+     * own job) that sent mail in this process and then failed settles those
+     * sends. When nothing is in flight here (the sending attempt ran in a
+     * worker that died, e.g. on a timeout), a queued Mailable falls back to
+     * the newest Pending event of its class + model.
+     */
     public function handleFailed(JobFailed $event): void
     {
-        $payload = $event->job->payload();
+        $uuid = $event->job->uuid();
 
-        if (($payload['data']['commandName'] ?? null) !== SendQueuedMailable::class) {
+        if ($this->settleInFlight($event->exception->getMessage())) {
+            $this->rememberSettled($uuid);
+
             return;
         }
 
-        $eventId = null;
-        $mailableClass = null;
-        $modelType = null;
-        $modelId = null;
-
-        try {
-            /** @var SendQueuedMailable $command */
-            $command = unserialize($payload['data']['command']);
-            $headers = $command->mailable->headers();
-            $eventId = $headers->text['X-Mail-Log-Event-Id'] ?? null;
-            $mailableClass = $headers->text['X-Mail-Class'] ?? null;
-            $modelType = $headers->text['X-Mail-Model-Type'] ?? null;
-            $modelId = $headers->text['X-Mail-Model-Id'] ?? null;
-        } catch (Throwable $e) {
-            report($e);
+        if ($uuid !== null && isset($this->settledJobs[$uuid])) {
+            return;
         }
 
-        $row = $this->resolveFailedEvent($eventId, $mailableClass, $modelType, $modelId);
+        $row = $this->pendingEventForQueuedMailable($event->job->payload());
 
         if (! $row instanceof MailLog) {
             return;
         }
 
         try {
-            DB::transaction(function () use ($row, $event): void {
-                $row->update([
-                    'status' => MailLogStatus::Failed,
-                    'error_message' => Str::limit($event->exception->getMessage(), 500),
-                ]);
-
-                $row->group?->recordEvent($row);
-            });
+            $row->markFailed($event->exception->getMessage());
         } catch (Throwable $e) {
             report($e);
         }
     }
 
-    private function resolveFailedEvent(
-        ?string $eventId,
-        ?string $mailableClass,
-        ?string $modelType,
-        ?string $modelId,
-    ): ?MailLog {
-        if ($eventId !== null) {
-            $row = MailLog::query()->find($eventId);
+    /**
+     * End of an HTTP request or console command: a synchronous Mail::send()
+     * that threw in the transport fires no event, so whatever is still in
+     * flight did not go out.
+     */
+    public function handleTerminating(): void
+    {
+        $this->settleInFlight(self::UNCONFIRMED_MESSAGE);
+    }
 
-            if ($row !== null) {
-                return $row;
-            }
+    /**
+     * @return bool whether anything was in flight
+     */
+    private function settleInFlight(string $message): bool
+    {
+        if ($this->inFlight === []) {
+            return false;
         }
+
+        $ids = array_values($this->inFlight);
+        $this->inFlight = [];
+
+        try {
+            MailLog::query()
+                ->whereKey($ids)
+                ->where('status', MailLogStatus::Pending)
+                ->get()
+                ->each(fn (MailLog $row) => $row->markFailed($message));
+        } catch (Throwable $e) {
+            report($e);
+        }
+
+        return true;
+    }
+
+    private function rememberSettled(?string $uuid): void
+    {
+        if ($uuid !== null) {
+            $this->settledJobs[$uuid] = true;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function pendingEventForQueuedMailable(array $payload): ?MailLog
+    {
+        if (($payload['data']['commandName'] ?? null) !== SendQueuedMailable::class) {
+            return null;
+        }
+
+        try {
+            $command = unserialize($payload['data']['command']);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
+
+        // headers() is the hook HasMailLog fills; the base Mailable has none.
+        if (! $command instanceof SendQueuedMailable || ! method_exists($command->mailable, 'headers')) {
+            return null;
+        }
+
+        try {
+            $headers = $command->mailable->headers();
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
+
+        $mailableClass = $headers->text['X-Mail-Class'] ?? null;
+        $modelType = $headers->text['X-Mail-Model-Type'] ?? null;
+        $modelId = $headers->text['X-Mail-Model-Id'] ?? null;
 
         if ($mailableClass === null || $modelType === null || $modelId === null) {
             return null;
@@ -159,12 +269,13 @@ class LogOutgoingMail
 
         return MailLog::query()
             ->where('status', MailLogStatus::Pending)
-            ->whereHas('group', function ($query) use ($mailableClass, $modelType, $modelId): void {
+            ->whereHas('group', function (Builder $query) use ($mailableClass, $modelType, $modelId): void {
                 $query->where('mailable_class', $mailableClass)
                     ->where('model_type', $modelType)
                     ->where('model_id', $modelId);
             })
             ->latest('created_at')
+            ->latest('id')
             ->first();
     }
 
@@ -174,8 +285,8 @@ class LogOutgoingMail
 
         try {
             $group = MailLogGroup::query()->firstOrCreate(['fingerprint' => $fingerprint], $canonical + [
-                'html_body' => $message->getHtmlBody(),
-                'text_body' => $message->getTextBody(),
+                'html_body' => ($this->redactor)($this->bodyString($message->getHtmlBody())),
+                'text_body' => ($this->redactor)($this->bodyString($message->getTextBody())),
                 'latest_status' => MailLogStatus::Pending,
             ]);
         } catch (UniqueConstraintViolationException) {
@@ -194,7 +305,7 @@ class LogOutgoingMail
     }
 
     /**
-     * @return array<string, string|null>
+     * @return array{subject: string|null, from: string|null, mailable_class: string|null, notification_class: string|null, model_type: string|null, model_id: string|null, mailer: string|null}
      */
     private function canonicalAttributes(Email $message, ?string $mailer): array
     {
@@ -258,10 +369,6 @@ class LogOutgoingMail
         $collection = (string) config('mail-log.attachments.collection', 'attachments');
 
         foreach ($message->getAttachments() as $attachment) {
-            if (! $attachment instanceof DataPart) {
-                continue;
-            }
-
             $body = $attachment->getBody();
 
             if (strlen($body) > $maxBytes) {
@@ -276,6 +383,20 @@ class LogOutgoingMail
                 ->usingFileName($filename)
                 ->toMediaCollection($collection);
         }
+    }
+
+    /**
+     * Symfony bodies may be a string or a stream resource.
+     *
+     * @param  resource|string|null  $body
+     */
+    private function bodyString(mixed $body): ?string
+    {
+        if (is_resource($body)) {
+            return (string) stream_get_contents($body, offset: 0);
+        }
+
+        return $body;
     }
 
     private function calculatedSeconds(Email $message): ?float

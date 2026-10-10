@@ -6,12 +6,15 @@ namespace Phattarachai\MailLogLaravel;
 
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
+use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Override;
 use Phattarachai\MailLogLaravel\Console\InstallCommand;
+use Phattarachai\MailLogLaravel\Console\SettleStaleCommand;
 use Phattarachai\MailLogLaravel\Listeners\LogOutgoingMail;
 use Phattarachai\MailLogLaravel\Support\Fingerprinter;
 
@@ -23,6 +26,10 @@ class MailLogServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/mail-log.php', 'mail-log');
 
         $this->app->singleton(Fingerprinter::class);
+
+        // Scoped, not singleton: the listener tracks this request's / job's
+        // in-flight sends, and Octane + the queue worker flush scoped instances.
+        $this->app->scoped(LogOutgoingMail::class);
     }
 
     public function boot(): void
@@ -48,13 +55,21 @@ class MailLogServiceProvider extends ServiceProvider
         }
 
         if ($this->app->runningInConsole()) {
-            $this->commands([InstallCommand::class]);
+            $this->commands([InstallCommand::class, SettleStaleCommand::class]);
         }
 
-        if (config('mail-log.enabled') === true) {
+        if (filter_var(config('mail-log.enabled'), FILTER_VALIDATE_BOOL)) {
             Event::listen(MessageSending::class, [LogOutgoingMail::class, 'handleSending']);
             Event::listen(MessageSent::class, [LogOutgoingMail::class, 'handleSent']);
+            Event::listen(JobExceptionOccurred::class, [LogOutgoingMail::class, 'handleJobException']);
+            Event::listen(JobProcessed::class, [LogOutgoingMail::class, 'handleJobProcessed']);
             Event::listen(JobFailed::class, [LogOutgoingMail::class, 'handleFailed']);
+
+            $this->app->terminating(function (): void {
+                if ($this->app->resolved(LogOutgoingMail::class)) {
+                    $this->app->make(LogOutgoingMail::class)->handleTerminating();
+                }
+            });
         }
     }
 }

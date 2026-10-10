@@ -6,7 +6,10 @@ Deep reference for `phattarachai/mail-log-laravel`. Read [`SKILL.md`](SKILL.md) 
 
 | Key | Env | Default | Meaning |
 |---|---|---|---|
-| `enabled` | `MAIL_LOG_ENABLED` | `true` | Master switch. When `false` the service provider skips event listener registration entirely — zero overhead on hot paths. |
+| `enabled` | `MAIL_LOG_ENABLED` | `true` | Master switch, parsed with `FILTER_VALIDATE_BOOL` (`1`, `true`, `on` enable). When false the service provider skips event listener registration entirely — zero overhead on hot paths. |
+| `pending_timeout_minutes` | `MAIL_LOG_PENDING_TIMEOUT_MINUTES` | `15` | `mail-log:settle-stale` marks sends still Pending after this many minutes as Failed. |
+| `redact.enabled` | `MAIL_LOG_REDACT_BODIES` | `true` | Mask secrets in the stored group body (`html_body` / `text_body`) before saving. |
+| `redact.patterns` | — | 3 regexes (token/signature/expires/_token/code/hash/otp query values, `/password/reset/` + `/reset-password/` tokens, `/email/verify/` + `/verify-email/` hashes) | `pattern => replacement` map applied with `preg_replace`. Also applied before the body hash, so it keeps raw-path fingerprints stable. A pattern that errors withholds the body instead of storing it. |
 | `tables.groups` | `MAIL_LOG_TABLE_GROUPS` | `mail_log_groups` | Group table name. Migration + models honor this. |
 | `tables.events` | `MAIL_LOG_TABLE_EVENTS` | `mail_logs` | Event (per-send) table name. |
 | `retention_days` | `MAIL_LOG_RETENTION_DAYS` | `365` | Prunable scope on `MailLogGroup` (keyed on `updated_at`). `null` = never prune. Events cascade-delete via FK. |
@@ -65,7 +68,7 @@ The split mirrors what Watchtower does for exceptions: `mail_log_groups` is the 
 - `fingerprint` (CHAR 64, UNIQUE) — the dedup key.
 - `subject`, `from`, `mailable_class`, `notification_class`, `mailer` — **"latest seen"** on every send (refreshed inside the listener's `forceFill($canonical)->save()`). Drift across deploys when classes get renamed is fine; old groups will quietly carry the new name once they next fire.
 - `nullableMorphs('model')` — the originating record. `model_type` carries the morph alias (`mail_log_group` by default — `MailLogGroup::registerMorphMap()` registers it).
-- `html_body` / `text_body` — **first send wins**. Subsequent events do NOT rewrite the body. Surfaced in the show page's body-preview iframe as a representative sample. v0.1 has no per-event body storage; the `body-preview` partial includes a disclaimer.
+- `html_body` / `text_body` — **first send wins**. Subsequent events do NOT rewrite the body. Surfaced in the show page's body-preview iframe as a representative sample. Per-event bodies are not stored; the `body-preview` partial says so. With `redact.enabled` (default) the stored body has reset tokens, URL signatures and verify hashes replaced by `[redacted]`, because a mail without the trait (Laravel's `ResetPassword` / `VerifyEmail`, magic links) carries the first recipient's secret URL.
 - `sent_count`, `failed_count`, `latest_status` — denormalized counters. The listener's `recordEvent` increments atomically via `$this->save()` (status) + `$this->increment(...)` (counter).
 - `created_at` = first seen; `updated_at` = last activity (bumped by `recordEvent`).
 
@@ -83,9 +86,14 @@ The split mirrors what Watchtower does for exceptions: `mail_log_groups` is the 
 
 1. **`MessageSending`** → fingerprint computed → `MailLogGroup::firstOrCreate(['fingerprint' => $fp], $canonical)` inside `DB::transaction`. On race (UNIQUE violation on second insert) catches `UniqueConstraintViolationException` and re-fetches. New group: persist body + attachments. Existing group: refresh canonical attrs only. Then `MailLog::create([...PENDING])`. Stamps `X-Mail-Log-Event-Id` + `X-Mail-Log-Start` onto the outgoing message.
 2. **`MessageSent`** → reads `X-Mail-Log-Event-Id`, looks up the event, updates to `SENT` + `sent_at` + `seconds`, calls `$group->recordEvent($event)` to bump `sent_count` and flip `latest_status`.
-3. **`JobFailed`** → only fires for `SendQueuedMailable`. Deserializes the queued mailable, reads its `headers()->text` for `X-Mail-Log-Event-Id`. If the event ID isn't in the queued mailable's headers (the listener stamps it on the Email, not the Mailable), falls back to "latest PENDING event matching class + model + model_id". Flips event to `FAILED` + bumps `failed_count`.
+3. **Failure settlement.** The listener is a scoped singleton that remembers the events this request / job created whose `MessageSent` has not fired ("in flight"):
+   - **`JobExceptionOccurred`** (every failed attempt of any job: `SendQueuedMailable`, `SendQueuedNotifications`, or the host's own job) → in-flight events become `FAILED`. A non-final attempt's message is prefixed `Attempt N failed, the job will retry:`, so a job with `tries > 1` leaves one Failed row per failed attempt plus the final outcome, never a trail of Pending rows.
+   - **`JobFailed`** → same, for the final attempt. When nothing is in flight in this process (the sending attempt ran in a worker that died), a queued **Mailable** falls back to the newest PENDING event of its class + model.
+   - **`JobProcessed`** → a job that finished but caught a send exception itself.
+   - **App `terminating`** → a synchronous `Mail::send()` that threw in the transport (Laravel fires no event for it), settled with `LogOutgoingMail::UNCONFIRMED_MESSAGE`.
+4. **`mail-log:settle-stale`** (scheduled) → the backstop for everything else (killed workers, timeouts retried elsewhere, crashed requests): Pending rows older than `pending_timeout_minutes` become `FAILED`.
 
-All three handlers `report()` exceptions but never re-throw — the mail pipeline never breaks because of a logging failure.
+All handlers `report()` exceptions but never re-throw — the mail pipeline never breaks because of a logging failure.
 
 ## `MailLogLinkable` contract (opt-in)
 
@@ -106,7 +114,7 @@ class Order extends Model implements MailLogLinkable
 }
 ```
 
-v0.1 ships the contract but the index/show partials only display `class_basename($mailable_class)` and `model_type#model_id`. Deep-link rendering ships in v0.2.
+The index's Model column and the group page's Model row render `mailLogTitle()`, linked to `mailLogUrl()` when it returns a URL. Models without the contract render as `Type#id` (class basename on the index). A `model_type` whose class no longer exists degrades to text instead of erroring.
 
 ## UI routes + auth gate
 
@@ -176,6 +184,8 @@ php artisan migrate
 
 **`/mail-log` 403s on a fresh install** — that's the default gate (`APP_DEBUG=true` only). Either set `APP_DEBUG=true` in local, or register `MailLog::auth(...)` in `AppServiceProvider::boot()`.
 
-**Index search is slow on large groups tables** — the `search` filter does `WHERE EXISTS (SELECT 1 FROM mail_logs WHERE to LIKE ?)`. Postgres handles this well; MySQL/SQLite may benefit from a GIN/FTS index on `to`. v0.1 doesn't add one — track usage and add in v0.2 if it bites.
+**Index search is slow on large groups tables** — the `search` filter is case-insensitive and does `WHERE EXISTS (SELECT 1 FROM mail_logs WHERE to / cc / bcc LIKE ?)` (`::text ilike` on Postgres, `lower(cast(… as char))` on MySQL). No index covers it; on a very large `mail_logs` table add a trigram (Postgres) or full-text index on the recipient columns.
+
+**Sends stuck on Pending** — schedule `mail-log:settle-stale` (see SKILL.md). Rows the in-process settlement couldn't reach (a killed worker, a timed-out attempt retried on another worker) become Failed once older than `pending_timeout_minutes`.
 
 **`X-Mail-Fingerprint` hard override** for cross-class merging — useful when you've renamed a Mailable but want the old group to keep accumulating sends. Stamp `X-Mail-Fingerprint` to the prior fingerprint value via `withMailLog(...)` (subclass the trait or post-process the Headers).

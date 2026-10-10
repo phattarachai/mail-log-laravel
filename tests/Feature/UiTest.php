@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Storage;
+use Phattarachai\MailLogLaravel\Contracts\MailLogLinkable;
 use Phattarachai\MailLogLaravel\Enums\MailLogStatus;
 use Phattarachai\MailLogLaravel\Mail\TestMail;
 use Phattarachai\MailLogLaravel\MailLog;
@@ -242,3 +244,115 @@ it('inlines the dist CSS + JS bundles via the asset helpers', function (): void 
         ->and($jsHtml)->toContain('window.MailLog')
         ->and(strlen($jsHtml))->toBeGreaterThan(500);
 });
+
+it('searches recipients case-insensitively across to, cc and bcc', function (): void {
+    $byTo = MailLogGroup::factory()->create(['subject' => 'Invoice ready']);
+    MailLogEvent::factory()->for($byTo, 'group')->create(['to' => ['Customer@Example.com']]);
+    $byCc = MailLogGroup::factory()->create(['subject' => 'Order packed']);
+    MailLogEvent::factory()->for($byCc, 'group')->create(['to' => ['buyer@example.com'], 'cc' => ['warehouse@example.com']]);
+
+    expect($this->get(route('mail-log.index', ['search' => 'CUSTOMER@example']))->getContent())
+        ->toContain('Invoice ready')
+        ->not->toContain('Order packed');
+
+    expect($this->get(route('mail-log.index', ['search' => 'Warehouse']))->getContent())
+        ->toContain('Order packed')
+        ->not->toContain('Invoice ready');
+
+    expect($this->get(route('mail-log.index', ['search' => 'INVOICE']))->getContent())
+        ->toContain('Invoice ready');
+});
+
+it('renders a MailLogLinkable model as a deep link on the index and show pages', function (): void {
+    $order = LinkableOrder::query()->create(MailLogGroup::factory()->raw());
+    $group = MailLogGroup::factory()->create([
+        'subject' => 'Order shipped',
+        'model_type' => LinkableOrder::class,
+        'model_id' => (string) $order->id,
+    ]);
+
+    $link = 'href="https://shop.test/orders/'.$order->id.'"';
+
+    $this->get(route('mail-log.index'))->assertOk()->assertSee($link, escape: false)->assertSee('Order #'.$order->id);
+    $this->get(route('mail-log.show', $group))->assertOk()->assertSee($link, escape: false);
+});
+
+it('falls back to type#id when the linked model class no longer exists', function (): void {
+    $group = MailLogGroup::factory()->create([
+        'subject' => 'Legacy mail',
+        'model_type' => 'App\\Models\\RemovedModel',
+        'model_id' => '9',
+    ]);
+
+    $this->get(route('mail-log.index'))->assertOk()->assertSee('RemovedModel#9');
+    $this->get(route('mail-log.show', $group))->assertOk()->assertSee('App\\Models\\RemovedModel#9');
+});
+
+it('counts pending sends in the index, the totals and the group stats', function (): void {
+    $group = MailLogGroup::factory()->create([
+        'subject' => 'Still sending',
+        'sent_count' => 0,
+        'failed_count' => 0,
+        'latest_status' => MailLogStatus::Pending,
+    ]);
+    MailLogEvent::factory()->for($group, 'group')->pending()->create();
+
+    expect($group->fresh()->totalSends())->toBe(1);
+
+    $this->get(route('mail-log.index'))->assertOk()->assertSeeInOrder(['<span>1</span> sends total'], escape: false);
+    $this->get(route('mail-log.show', $group))->assertOk()->assertSee('1 pending');
+});
+
+it('shows the first-sent date when the group started on an earlier day', function (): void {
+    $group = MailLogGroup::factory()->create([
+        'created_at' => now()->setDate(2026, 5, 9)->setTime(10, 14),
+        'updated_at' => now()->setDate(2026, 5, 19)->setTime(15, 7),
+        'sent_count' => 2,
+    ]);
+    MailLogEvent::factory()->for($group, 'group')->count(2)->create();
+
+    $this->get(route('mail-log.index'))->assertOk()->assertSee('first 9 พ.ค. 69 · 10:14');
+});
+
+it('shows when a send was confirmed in the sends table, not when it started', function (): void {
+    $group = MailLogGroup::factory()->create();
+    MailLogEvent::factory()->for($group, 'group')->create([
+        'created_at' => now()->setDate(2026, 5, 19)->setTime(15, 0),
+        'sent_at' => now()->setDate(2026, 5, 19)->setTime(15, 7),
+    ]);
+
+    $this->get(route('mail-log.show', $group))->assertOk()->assertSee('19 พ.ค. 69 · 15:07')->assertDontSee('19 พ.ค. 69 · 15:00');
+});
+
+it('renders the chrome without third-party fonts or a theme toggle', function (): void {
+    MailLogGroup::factory()->create();
+
+    $this->get(route('mail-log.index'))
+        ->assertOk()
+        ->assertDontSee('fonts.bunny.net')
+        ->assertDontSee('toggleTheme');
+});
+
+it('flashes an English confirmation after deleting a group', function (): void {
+    $group = MailLogGroup::factory()->create();
+
+    $this->delete(route('mail-log.destroy', $group))
+        ->assertSessionHas('mail-log:flash', 'Deleted the group and every send in it.');
+});
+
+class LinkableOrder extends Model implements MailLogLinkable
+{
+    protected $table = 'mail_log_groups';
+
+    protected $guarded = [];
+
+    public function mailLogTitle(): string
+    {
+        return 'Order #'.$this->id;
+    }
+
+    public function mailLogUrl(): ?string
+    {
+        return 'https://shop.test/orders/'.$this->id;
+    }
+}

@@ -8,7 +8,11 @@
     $recipients = $group->uniqueRecipients();
     $firstRecipient = $recipients->first();
     $extra = max(0, $recipients->count() - 1);
-    $multi = ($group->sent_count + $group->failed_count) > 1;
+    $totalSends = $group->totalSends();
+    $multi = $totalSends > 1;
+    $firstSentLabel = $group->created_at?->isSameDay($group->updated_at)
+        ? $group->created_at->format('H:i')
+        : MailLog::dt($group->created_at);
     $latestError = $group->latest_status === MailLogStatus::Failed
         ? optional($group->latestEvent)->error_message
         : null;
@@ -19,7 +23,7 @@
         <a href="{{ route('mail-log.show', $group) }}" class="block font-mono">
             <div class="text-xs text-zinc-700">{{ MailLog::dt($group->updated_at) }}</div>
             @if ($multi)
-                <div class="text-[10px] text-zinc-400">first {{ optional($group->created_at)->format('H:i') }}</div>
+                <div class="text-[10px] text-zinc-400">first {{ $firstSentLabel }}</div>
             @endif
         </a>
     </td>
@@ -60,6 +64,9 @@
             <span class="text-zinc-400">—</span>
         @endif
     </td>
+    <td class="px-3 py-2.5 align-top font-mono text-[11px] text-zinc-500">
+        <x-mail-log::model-link :group="$group" short />
+    </td>
     <td class="px-3 py-2.5 align-top">
         @if ($group->mailer)
             <span class="inline-flex items-center rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-600">{{ $group->mailer }}</span>
@@ -67,5 +74,5 @@
             <span class="text-zinc-400">—</span>
         @endif
     </td>
-    <td class="px-3 py-2.5 text-right align-top font-mono text-[11px] text-zinc-500">{{ $group->sent_count + $group->failed_count }}</td>
+    <td class="px-3 py-2.5 text-right align-top font-mono text-[11px] text-zinc-500">{{ $totalSends }}</td>
 </tr>

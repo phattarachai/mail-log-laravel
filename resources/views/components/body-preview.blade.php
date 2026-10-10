@@ -40,12 +40,16 @@
 
     <p class="text-[11px] text-zinc-400">
         Body shows the <span class="font-medium text-zinc-600">first send</span> in this group. Per-recipient body variation (signed URLs, magic links, personalized text) is not captured.
+        @if (config('mail-log.redact.enabled', true))
+            Reset tokens, URL signatures and verify hashes are masked as <code class="font-mono">[redacted]</code>.
+        @endif
     </p>
 
     <div class="rounded-lg border border-zinc-200 bg-zinc-100 p-3">
         <iframe
             x-ref="frame"
             sandbox="allow-same-origin"
+            @load="fitToContent()"
             class="mail-log-body-preview rounded-md"
             referrerpolicy="no-referrer"
         ></iframe>
