@@ -64,7 +64,7 @@
             <span class="text-zinc-400">—</span>
         @endif
     </td>
-    <td class="max-w-48 whitespace-nowrap px-3 py-2.5 align-top text-zinc-600">
+    <td class="max-w-36 whitespace-nowrap px-3 py-2.5 align-top text-zinc-600">
         <x-mail-log::model-link :group="$group" short class="block truncate" />
     </td>
     <td class="px-3 py-2.5 align-top">

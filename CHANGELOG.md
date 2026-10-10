@@ -2,6 +2,16 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## 0.3.2 — 2026-10-10
+
+### Fixed
+
+- **No horizontal page scroll on the index.** Since 0.3.1 the one-line Model column made the table about 45px wider than the page at 1360px and below, pushing the "× sends" column to the edge. The Model column now truncates sooner, and the table scrolls inside its own container on narrow screens instead of scrolling the page.
+
+### Compatibility
+
+- View and CSS only. Drop-in upgrade from 0.3.x.
+
 ## 0.3.1 — 2026-10-10
 
 ### Fixed

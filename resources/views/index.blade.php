@@ -54,7 +54,7 @@
     @if ($groups->isEmpty())
         <x-mail-log::empty-state :filtered="!empty(array_filter($filters))" />
     @else
-        <div class="mx-auto max-w-7xl px-6">
+        <div class="mx-auto max-w-7xl overflow-x-auto px-6">
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b border-zinc-200 text-left text-xs font-medium uppercase text-zinc-500">
