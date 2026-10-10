@@ -10,8 +10,8 @@
                         type="text"
                         name="search"
                         value="{{ $filters['search'] ?? '' }}"
-                        class="h-9 w-72 rounded-md border border-zinc-200 bg-white pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-100"
-                        placeholder="Search subject, recipient, mailable class…"
+                        class="h-9 w-80 max-w-full rounded-md border border-zinc-200 bg-white pl-8 pr-3 text-sm placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-100"
+                        placeholder="Search subject, recipient or class"
                     >
                 </div>
 

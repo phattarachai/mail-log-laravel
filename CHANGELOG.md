@@ -2,6 +2,19 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## 0.3.1 — 2026-10-10
+
+### Fixed
+
+- **The body preview shrinks again.** It only grew, so switching from Source to Text left thousands of pixels of empty frame. It now fits the content on every tab switch.
+- **The index Model column no longer wraps.** Titles (often Thai names or order labels) stay on one line, truncated with the full title on hover, and use the sans font. `Type#id` fallbacks stay monospace.
+- **The search placeholder fits.** The box is wider and the placeholder now reads "Search subject, recipient or class".
+- **One back link on the group page.** The breadcrumb's "Back" sat under the header's "Back to app" and did something different. The breadcrumb now starts with the dashboard name ("‹ Mail Log / subject").
+
+### Compatibility
+
+- View, CSS and JS only. Drop-in upgrade from 0.3.0.
+
 ## 0.3.0 — 2026-10-10
 
 ### Fixed

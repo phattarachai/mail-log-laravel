@@ -5,10 +5,8 @@
         <div class="mx-auto flex max-w-7xl items-center gap-3 px-6 py-3 text-sm">
             <a href="{{ route('mail-log.index') }}" class="inline-flex items-center gap-1.5 text-zinc-500 hover:text-zinc-900">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg>
-                Back
+                {{ config('mail-log.ui.brand', 'Mail Log') }}
             </a>
-            <span class="text-zinc-300">/</span>
-            <a href="{{ route('mail-log.index') }}" class="text-zinc-500 hover:text-zinc-900">{{ config('mail-log.ui.brand', 'Mail Log') }}</a>
             <span class="text-zinc-300">/</span>
             <span class="truncate font-medium">{{ $group->subject ?: '(no subject)' }}</span>
             <span class="ml-2 inline-flex items-center rounded-md bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-500" title="This page represents one group; sends below are its events.">group</span>

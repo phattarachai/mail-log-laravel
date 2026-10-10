@@ -27,6 +27,9 @@ Alpine.data('bodyPreview', (html, text) => ({
         if (!frame) {
             return
         }
+        // Collapse first: the document's scrollHeight never reports less than the
+        // frame's current height, so measuring at the old height can only grow.
+        frame.style.height = '160px'
         if (this.mode === 'html') {
             frame.srcdoc = this.html || '<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;color:#888;padding:24px"><em>No HTML body recorded.</em></body>'
         } else if (this.mode === 'text') {
