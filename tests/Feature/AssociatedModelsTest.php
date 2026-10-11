@@ -104,11 +104,11 @@ it('shows a send its own extra models, but not ones every send in the group shar
 });
 
 it('labels the model filter with the MailLogLinkable title', function (): void {
-    $emma = associationCustomer('คุณณัฐญา ส.');
+    $emma = associationCustomer('ลูกค้า ก.');
 
     $this->get(route('mail-log.index', ['model' => AssociationCustomer::class.':'.$emma->id]))
         ->assertOk()
-        ->assertSee('คุณณัฐญา ส.');
+        ->assertSee('ลูกค้า ก.');
 
     $this->get(route('mail-log.index', ['model' => 'App\\Models\\Gone:9']))
         ->assertOk()
