@@ -127,6 +127,22 @@ it('settles a synchronous send that threw when the request terminates', function
         ->and($row->error_message)->toBe(LogOutgoingMail::UNCONFIRMED_MESSAGE);
 });
 
+it('keeps the transport error of a synchronous send the app reports', function (): void {
+    try {
+        Mail::to('a@example.com')->send(new SettlementOrderMail(MailLogGroup::factory()->create()));
+    } catch (TransportException $exception) {
+        report($exception);
+    }
+
+    $this->app->terminate();
+
+    $row = MailLog::query()->sole();
+
+    expect($row->status)->toBe(MailLogStatus::Failed)
+        ->and($row->error_message)->not->toBe(LogOutgoingMail::UNCONFIRMED_MESSAGE)
+        ->and($row->error_message)->toBe($exception->getMessage());
+});
+
 it('settles a send the job caught itself when the job finishes', function (): void {
     sendThatThrows(new SettlementOrderMail(MailLogGroup::factory()->create()));
 

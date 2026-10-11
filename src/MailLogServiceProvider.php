@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Phattarachai\MailLogLaravel;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Queue\Events\JobExceptionOccurred;
@@ -18,6 +20,7 @@ use Phattarachai\MailLogLaravel\Console\ResendCommand;
 use Phattarachai\MailLogLaravel\Console\SettleStaleCommand;
 use Phattarachai\MailLogLaravel\Listeners\LogOutgoingMail;
 use Phattarachai\MailLogLaravel\Support\Fingerprinter;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 class MailLogServiceProvider extends ServiceProvider
 {
@@ -69,6 +72,18 @@ class MailLogServiceProvider extends ServiceProvider
             $this->app->terminating(function (): void {
                 if ($this->app->resolved(LogOutgoingMail::class)) {
                     $this->app->make(LogOutgoingMail::class)->handleTerminating();
+                }
+            });
+
+            // A synchronous send fires no event when the transport throws. The
+            // exception still reaches the app's reporter, which carries its message.
+            $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
+                if ($handler instanceof Handler) {
+                    $handler->reportable(function (TransportExceptionInterface $exception): void {
+                        if ($this->app->resolved(LogOutgoingMail::class)) {
+                            $this->app->make(LogOutgoingMail::class)->handleTransportException($exception);
+                        }
+                    });
                 }
             });
         }
