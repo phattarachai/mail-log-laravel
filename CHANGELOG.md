@@ -2,7 +2,7 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
-## Unreleased
+## 0.4.2 — 2026-10-11
 
 ### Fixed
 
