@@ -2,6 +2,12 @@
 
 All notable changes to `phattarachai/mail-log-laravel` are documented here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- **A synchronous send that fails keeps the transport's error.** `Mail::send()` in a request or command fires no event when the transport throws, so the send used to settle with a generic note. Mail Log now reads the message from the app's exception reporter (e.g. `Connection could not be established with host "smtp.example.com:587"`). A send whose exception your code catches without `report()` still gets the generic note.
+
 ## 0.4.1 — 2026-10-11
 
 ### Fixed

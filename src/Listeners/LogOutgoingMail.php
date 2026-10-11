@@ -215,6 +215,15 @@ class LogOutgoingMail
      * that threw in the transport fires no event, so whatever is still in
      * flight did not go out.
      */
+    /**
+     * A synchronous send whose transport threw, as the app reports it. Queued
+     * sends are already settled by JobExceptionOccurred, so nothing is in flight.
+     */
+    public function handleTransportException(Throwable $exception): void
+    {
+        $this->settleInFlight($exception->getMessage());
+    }
+
     public function handleTerminating(): void
     {
         $this->settleInFlight(self::UNCONFIRMED_MESSAGE);

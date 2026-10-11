@@ -29,7 +29,7 @@ composer require phattarachai/mail-log-laravel
 php artisan mail-log:install
 ```
 
-`mail-log:install` is idempotent. It publishes the package config, the Spatie `laravel-medialibrary` migration (auto-detected when the `media` table is missing), and the package's own migrations. It then writes three env keys (`MAIL_LOG_ENABLED`, `MAIL_LOG_RETENTION_DAYS`, `MAIL_LOG_UI_PATH`) only when absent, and prints the snippets you need to paste into `AppServiceProvider::boot()`, a Mailable, and the scheduler.
+`mail-log:install` is idempotent. It publishes the package config, the Spatie `laravel-medialibrary` migration (auto-detected when the `media` table is missing), and the package's own migrations, then offers to run `php artisan migrate`. It writes three env keys (`MAIL_LOG_ENABLED`, `MAIL_LOG_RETENTION_DAYS`, `MAIL_LOG_UI_PATH`) only when absent, and prints the snippets you need to paste into `AppServiceProvider::boot()`, a Mailable, and the scheduler.
 
 Re-run safely. Pass `--dry-run` to print intended changes without writing.
 
@@ -222,7 +222,7 @@ Every event starts **Pending** when Laravel fires `MessageSending` and becomes *
 |---|---|
 | Queued Mailable or queued Notification (`SendQueuedMailable`, `SendQueuedNotifications`) or your own job | `JobExceptionOccurred` / `JobFailed` in the same worker. A job with `tries > 1` records one Failed row per failed attempt (`Attempt 1 failed, the job will retry: …`) plus the final outcome. |
 | A job that caught the send exception itself | `JobProcessed` |
-| Synchronous `Mail::send()` in a request or command (Laravel fires no event for a transport error) | the app's `terminating` hook |
+| Synchronous `Mail::send()` in a request or command (Laravel fires no event for a transport error) | the app's exception reporter, with the transport's message, when the exception reaches it. If your code catches it without `report()`, the app's `terminating` hook marks the send Failed with a generic note pointing at the log. |
 | A worker killed mid-send, a timeout retried on another worker, a crashed process | `php artisan mail-log:settle-stale` |
 
 `mail-log:settle-stale` marks events still Pending after `MAIL_LOG_PENDING_TIMEOUT_MINUTES` (default 15) as Failed. Schedule it (see [Scheduling](#scheduling)); `--minutes=N` overrides the timeout for one run.
